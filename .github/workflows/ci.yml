@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate:
+    name: Validate HTML & Assets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check required files exist
+        run: |
+          echo "Checking project structure..."
+          for f in index.html js/app.js js/config.js js/api.js css/variables.css; do
+            if [ ! -f "$f" ]; then
+              echo "FAIL: Missing $f"
+              exit 1
+            fi
+          done
+          echo "All required files present."
+
+      - name: Validate HTML syntax
+        uses: nickcox/html-linter-action@v0.1.0
+        with:
+          file: index.html
+        continue-on-error: true
+
+      - name: Check for hardcoded secrets
+        run: |
+          echo "Scanning for potential secrets..."
+          # Fail if config.js contains a real API key (non-empty default)
+          if grep -qP "DEFAULT_API_KEY\s*=\s*'[^']{10,}'" js/config.js; then
+            echo "FAIL: js/config.js contains a hardcoded API key!"
+            exit 1
+          fi
+          if grep -qP "DEFAULT_API_BASE_URL\s*=\s*'https?://[^']+'" js/config.js; then
+            echo "FAIL: js/config.js contains a hardcoded API URL!"
+            exit 1
+          fi
+          echo "No secrets detected."
+
+      - name: Validate JSON (if any)
+        run: |
+          find . -name '*.json' -not -path './.git/*' -not -path './node_modules/*' | while read f; do
+            python3 -c "import json; json.load(open('$f'))" 2>/dev/null || echo "WARN: Invalid JSON in $f"
+          done
+
+  docker:
+    name: Docker Build Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Docker image
+        run: docker build -t zhida-ai-test .
+      - name: Verify container starts
+        run: |
+          docker run -d --name test-container -p 8080:80 zhida-ai-test
+          sleep 2
+          curl -f http://localhost:8080/ || exit 1
+          docker stop test-container

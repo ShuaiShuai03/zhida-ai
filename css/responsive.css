@@ -1,0 +1,234 @@
+/* ============================================
+   Responsive — Tablet (768px – 1024px)
+   ============================================ */
+
+@media (max-width: 1024px) {
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    transform: translateX(-100%);
+    box-shadow: var(--shadow-xl);
+  }
+
+  .sidebar.open {
+    transform: translateX(0);
+  }
+
+  .sidebar-overlay {
+    display: none;
+  }
+
+  .sidebar-overlay.visible {
+    display: block;
+  }
+
+  .header__sidebar-toggle {
+    display: flex;
+  }
+
+  .chat-messages__inner {
+    max-width: 100%;
+  }
+
+  .input-area__inner {
+    max-width: 100%;
+  }
+}
+
+/* ============================================
+   Responsive — Mobile (<768px)
+   ============================================ */
+
+@media (max-width: 767px) {
+  .sidebar {
+    width: 85%;
+    min-width: unset;
+    max-width: 320px;
+  }
+
+  .header {
+    padding: var(--space-2) var(--space-3);
+    min-height: 48px;
+  }
+
+  .header__action-btn[data-tooltip]::after {
+    display: none;
+  }
+
+  .model-selector__trigger {
+    padding: var(--space-2);
+    font-size: var(--font-size-xs);
+    max-width: 160px;
+  }
+
+  .model-selector__trigger .badge {
+    display: none;
+  }
+
+  .model-selector__dropdown {
+    min-width: 250px;
+    left: auto;
+    right: 0;
+  }
+
+  .chat-messages {
+    padding: var(--space-3) var(--space-3);
+  }
+
+  .message__bubble {
+    max-width: 88%;
+  }
+
+  .message--ai .message__bubble {
+    padding: var(--space-3) var(--space-4);
+  }
+
+  .input-area {
+    padding: var(--space-3);
+    padding-top: var(--space-2);
+  }
+
+  .input-wrapper {
+    padding: var(--space-2) var(--space-3);
+  }
+
+  .welcome-screen {
+    padding: var(--space-7) var(--space-4);
+  }
+
+  .welcome-screen__title {
+    font-size: var(--font-size-2xl);
+  }
+
+  .welcome-screen__cards {
+    grid-template-columns: 1fr;
+  }
+
+  /* Toast positioning for mobile */
+  .toast-container {
+    top: var(--space-2);
+    right: var(--space-2);
+    left: var(--space-2);
+  }
+
+  .toast {
+    max-width: 100%;
+  }
+
+  /* Code blocks horizontal scroll */
+  .code-block pre {
+    font-size: var(--font-size-xs);
+  }
+
+  /* Modal full-screen on mobile */
+  .modal-overlay {
+    padding: 0;
+    align-items: flex-end;
+  }
+
+  .modal {
+    max-width: 100%;
+    max-height: 90vh;
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  }
+
+  /* Settings button text hidden on small screens */
+  .sidebar-footer__btn span {
+    display: inline;
+  }
+}
+
+/* ============================================
+   Responsive — Extra Small (<400px)
+   ============================================ */
+
+@media (max-width: 400px) {
+  .model-selector__trigger {
+    max-width: 120px;
+  }
+
+  .model-selector__trigger .model-name-text {
+    max-width: 60px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    display: inline-block;
+  }
+
+  .header__right {
+    gap: var(--space-1);
+  }
+
+  .header__action-btn {
+    width: 32px;
+    height: 32px;
+  }
+
+  .send-btn {
+    width: 32px;
+    height: 32px;
+  }
+}
+
+/* ============================================
+   Responsive — Large Desktop (>1400px)
+   ============================================ */
+
+@media (min-width: 1400px) {
+  .chat-messages__inner {
+    max-width: 900px;
+  }
+
+  .input-area__inner {
+    max-width: 900px;
+  }
+}
+
+/* ============================================
+   Reduced Motion
+   ============================================ */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ============================================
+   Print Styles
+   ============================================ */
+
+@media print {
+  .sidebar,
+  .header,
+  .input-area,
+  .toast-container,
+  .modal-overlay,
+  .offline-banner,
+  .message__actions {
+    display: none !important;
+  }
+
+  .main-content {
+    overflow: visible;
+  }
+
+  .chat-area {
+    overflow: visible;
+  }
+
+  .chat-messages {
+    overflow: visible;
+  }
+
+  .message {
+    page-break-inside: avoid;
+  }
+}

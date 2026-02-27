@@ -1,0 +1,7 @@
+services:
+  zhida-ai:
+    build: .
+    container_name: zhida-ai
+    ports:
+      - "3000:80"
+    restart: unless-stopped

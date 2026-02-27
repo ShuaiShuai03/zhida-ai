@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="description" content="智答 AI — 你的智能 AI 助手，支持多模型切换、深度思考、实时流式对话。" />
+  <meta name="theme-color" content="#4F46E5" />
+
+  <!-- Open Graph -->
+  <meta property="og:title" content="智答 AI" />
+  <meta property="og:description" content="你的智能 AI 助手" />
+  <meta property="og:type" content="website" />
+
+  <title>智答 AI — 智能对话助手</title>
+
+  <!-- Favicon (inline SVG) -->
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32' fill='none'%3E%3Crect width='32' height='32' rx='8' fill='%234F46E5'/%3E%3Cpath d='M8 11C8 9.89543 8.89543 9 10 9H22C23.1046 9 24 9.89543 24 11V19C24 20.1046 23.1046 21 22 21H18L14 25V21H10C8.89543 21 8 20.1046 8 19V11Z' fill='white' fill-opacity='0.9'/%3E%3Ccircle cx='12.5' cy='15' r='1.5' fill='%234F46E5'/%3E%3Ccircle cx='16' cy='15' r='1.5' fill='%234F46E5'/%3E%3Ccircle cx='19.5' cy='15' r='1.5' fill='%234F46E5'/%3E%3C/svg%3E" />
+
+  <!-- KaTeX CSS -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" crossorigin="anonymous" />
+
+  <!-- highlight.js Theme -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css" crossorigin="anonymous" />
+
+  <!-- App CSS -->
+  <link rel="stylesheet" href="css/variables.css" />
+  <link rel="stylesheet" href="css/base.css" />
+  <link rel="stylesheet" href="css/layout.css" />
+  <link rel="stylesheet" href="css/components.css" />
+  <link rel="stylesheet" href="css/chat.css" />
+  <link rel="stylesheet" href="css/animations.css" />
+  <link rel="stylesheet" href="css/responsive.css" />
+</head>
+<body>
+  <!-- Offline Banner -->
+  <div class="offline-banner" role="alert" aria-live="assertive">
+    您当前处于离线状态
+  </div>
+
+  <!-- Toast Container -->
+  <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+  <!-- App Container -->
+  <div class="app-container">
+    <!-- ============ Sidebar ============ -->
+    <aside class="sidebar" role="complementary" aria-label="对话列表">
+      <div class="sidebar-header">
+        <div class="sidebar-header__title">
+          <svg class="sidebar-header__logo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+            <path d="M2 17l10 5 10-5"/>
+            <path d="M2 12l10 5 10-5"/>
+          </svg>
+          <h2>智答 AI</h2>
+        </div>
+        <button id="new-chat-btn" class="new-chat-btn" aria-label="新建对话">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          <span>新建对话</span>
+        </button>
+      </div>
+
+      <div class="sidebar-search">
+        <div class="sidebar-search__wrapper">
+          <svg class="sidebar-search__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input type="text" id="sidebar-search" class="sidebar-search__input" placeholder="搜索对话..." aria-label="搜索对话" />
+        </div>
+      </div>
+
+      <div id="conversation-list" class="conversation-list" role="list" aria-label="对话列表">
+        <!-- Rendered by JS -->
+      </div>
+
+      <div class="sidebar-footer">
+        <div class="sidebar-footer__actions">
+          <button id="export-btn" class="sidebar-footer__btn" aria-label="导出对话">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            <span>导出当前对话</span>
+          </button>
+          <button id="shortcuts-btn" class="sidebar-footer__btn" aria-label="快捷键">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2" ry="2"/><path d="M6 8h.01"/><path d="M10 8h.01"/><path d="M14 8h.01"/><path d="M18 8h.01"/><path d="M8 12h.01"/><path d="M12 12h.01"/><path d="M16 12h.01"/><path d="M7 16h10"/></svg>
+            <span>⌨️ 快捷键</span>
+          </button>
+          <button id="clear-all-btn" class="sidebar-footer__btn sidebar-footer__btn--danger" aria-label="清空所有对话">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+            <span>清空所有对话</span>
+          </button>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Sidebar Overlay (mobile) -->
+    <div class="sidebar-overlay" aria-hidden="true"></div>
+
+    <!-- ============ Main Content ============ -->
+    <main class="main-content" role="main">
+      <!-- Header -->
+      <header class="header" role="banner">
+        <div class="header__left">
+          <button id="sidebar-toggle" class="header__sidebar-toggle" aria-label="切换侧边栏">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+          </button>
+
+          <!-- Model Selector -->
+          <div class="model-selector" role="listbox" aria-label="选择模型">
+            <button id="model-trigger" class="model-selector__trigger" aria-haspopup="listbox" aria-expanded="false">
+              <!-- Rendered by JS -->
+            </button>
+            <div class="model-selector__dropdown">
+              <div id="model-list" class="model-selector__list" role="listbox">
+                <!-- Rendered by JS -->
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="header__right">
+          <button id="settings-btn" class="header__action-btn" data-tooltip="设置" aria-label="设置">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          </button>
+          <button id="theme-toggle" class="header__action-btn" data-tooltip="深色模式" aria-label="切换主题">
+            <!-- Icon rendered by theme.js -->
+          </button>
+        </div>
+      </header>
+
+      <!-- Chat Area -->
+      <section class="chat-area" aria-label="对话区域">
+        <div id="chat-messages" class="chat-messages">
+          <div id="chat-messages-inner" class="chat-messages__inner">
+            <!-- Rendered by JS (welcome screen or messages) -->
+          </div>
+        </div>
+
+        <!-- Input Area -->
+        <div class="input-area">
+          <div class="input-area__inner">
+            <div class="system-prompt-indicator" aria-label="自定义系统提示词已启用">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+              <span>自定义提示词</span>
+            </div>
+            <div class="input-wrapper">
+              <textarea
+                id="chat-input"
+                class="input-wrapper__textarea"
+                placeholder="输入你的问题..."
+                rows="1"
+                aria-label="输入消息"
+              ></textarea>
+              <div class="input-wrapper__actions">
+                <button id="send-btn" class="send-btn" disabled aria-label="发送消息">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                </button>
+                <button id="stop-btn" class="stop-btn hidden" aria-label="停止生成">
+                  <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+                  <span>停止生成</span>
+                </button>
+              </div>
+            </div>
+            <div class="input-hint">Enter 发送, Shift+Enter 换行</div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- ============ Modals ============ -->
+
+  <!-- Settings Modal -->
+  <div id="settings-modal" class="modal-overlay" aria-hidden="true" role="dialog" aria-labelledby="settings-title">
+    <div class="modal">
+      <div class="modal__header">
+        <h3 id="settings-title" class="modal__title">设置</h3>
+        <button class="modal__close" aria-label="关闭">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="modal__body">
+        <div class="settings-form">
+          <!-- API Configuration -->
+          <div class="settings-group">
+            <label class="settings-group__label" for="settings-api-base-url">API 地址</label>
+            <p class="settings-group__desc">OpenAI 兼容接口的基础 URL（例如 https://api.openai.com）</p>
+            <input type="url" id="settings-api-base-url" placeholder="https://your-api-host.com" autocomplete="off" />
+          </div>
+          <div class="settings-group">
+            <label class="settings-group__label" for="settings-api-key">API 密钥</label>
+            <p class="settings-group__desc">用于身份验证的密钥（仅存储在浏览器本地）</p>
+            <div class="api-key-wrapper">
+              <input type="password" id="settings-api-key" placeholder="sk-..." autocomplete="off" />
+              <button type="button" id="toggle-api-key-visibility" class="api-key-toggle" aria-label="显示/隐藏密钥">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <hr class="settings-divider" />
+
+          <!-- System Prompt -->
+          <div class="settings-group">
+            <label class="settings-group__label" for="settings-system-prompt">系统提示词</label>
+            <p class="settings-group__desc">自定义 AI 的行为和角色</p>
+            <textarea id="settings-system-prompt" rows="4" placeholder="输入自定义系统提示词..."></textarea>
+          </div>
+
+          <!-- Temperature -->
+          <div class="settings-group">
+            <label class="settings-group__label">温度</label>
+            <p class="settings-group__desc">控制回答的随机性和创造性</p>
+            <div class="slider-wrapper">
+              <span class="slider-wrapper__label">精确</span>
+              <input type="range" id="settings-temperature" min="0" max="2" step="0.1" value="0.7" aria-label="温度" />
+              <span class="slider-wrapper__label slider-wrapper__label--right">创意</span>
+              <span id="temp-value" class="slider-value">0.7</span>
+            </div>
+          </div>
+
+          <!-- Max Tokens -->
+          <div class="settings-group">
+            <label class="settings-group__label" for="settings-max-tokens">最大回复长度</label>
+            <p class="settings-group__desc">单次回复的最大 token 数量</p>
+            <input type="number" id="settings-max-tokens" min="256" max="32768" step="256" value="4096" />
+          </div>
+        </div>
+      </div>
+      <div class="modal__footer">
+        <button class="btn btn--secondary modal__close">取消</button>
+        <button id="settings-save-btn" class="btn btn--primary">保存设置</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Confirm Modal -->
+  <div id="confirm-modal" class="modal-overlay" aria-hidden="true" role="alertdialog" aria-labelledby="confirm-title">
+    <div class="modal" style="max-width: 400px;">
+      <div class="modal__header">
+        <h3 id="confirm-title" class="modal__title">确认操作</h3>
+        <button class="modal__close" aria-label="关闭">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="modal__body">
+        <p id="confirm-message" class="confirm-dialog__message"></p>
+      </div>
+      <div class="modal__footer">
+        <button id="confirm-cancel-btn" class="btn btn--secondary">取消</button>
+        <button id="confirm-ok-btn" class="btn btn--danger">确定</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Keyboard Shortcuts Modal -->
+  <div id="shortcuts-modal" class="modal-overlay" aria-hidden="true" role="dialog" aria-labelledby="shortcuts-title">
+    <div class="modal" style="max-width: 440px;">
+      <div class="modal__header">
+        <h3 id="shortcuts-title" class="modal__title">⌨️ 快捷键</h3>
+        <button class="modal__close" aria-label="关闭">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="modal__body">
+        <div class="shortcuts-list">
+          <div class="shortcuts-list__item">
+            <span class="shortcuts-list__desc">发送消息</span>
+            <div class="shortcuts-list__keys"><kbd class="kbd">Enter</kbd></div>
+          </div>
+          <div class="shortcuts-list__item">
+            <span class="shortcuts-list__desc">换行</span>
+            <div class="shortcuts-list__keys"><kbd class="kbd">Shift</kbd><span>+</span><kbd class="kbd">Enter</kbd></div>
+          </div>
+          <div class="shortcuts-list__item">
+            <span class="shortcuts-list__desc">新建对话</span>
+            <div class="shortcuts-list__keys"><kbd class="kbd">Ctrl</kbd><span>+</span><kbd class="kbd">N</kbd></div>
+          </div>
+          <div class="shortcuts-list__item">
+            <span class="shortcuts-list__desc">切换侧边栏</span>
+            <div class="shortcuts-list__keys"><kbd class="kbd">Ctrl</kbd><span>+</span><kbd class="kbd">Shift</kbd><span>+</span><kbd class="kbd">S</kbd></div>
+          </div>
+          <div class="shortcuts-list__item">
+            <span class="shortcuts-list__desc">切换主题</span>
+            <div class="shortcuts-list__keys"><kbd class="kbd">Ctrl</kbd><span>+</span><kbd class="kbd">Shift</kbd><span>+</span><kbd class="kbd">L</kbd></div>
+          </div>
+          <div class="shortcuts-list__item">
+            <span class="shortcuts-list__desc">关闭弹窗 / 停止生成</span>
+            <div class="shortcuts-list__keys"><kbd class="kbd">Esc</kbd></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CDN Libraries -->
+  <script src="https://cdn.jsdelivr.net/npm/marked@14.1.3/marked.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js" crossorigin="anonymous"></script>
+
+  <!-- App Entry Point -->
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

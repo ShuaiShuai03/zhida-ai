@@ -1,0 +1,518 @@
+/**
+ * Chat logic — message handling, thinking block parsing, send/receive flow.
+ */
+
+import { state } from './state.js';
+import { generateId, truncate, copyToClipboard } from './utils.js';
+import { TITLE_MAX_LENGTH, DEFAULT_SYSTEM_PROMPT } from './config.js';
+import { streamChatCompletion } from './api.js';
+import { saveConversation, saveConversations, saveActiveConversationId } from './storage.js';
+import {
+  renderMessages,
+  appendUserMessage,
+  createStreamingMessage,
+  replaceStreamingMessage,
+  showStopButton,
+  updateSendButton,
+  scrollToBottom,
+  showToast,
+  renderConversationList,
+  updateSystemPromptIndicator,
+} from './ui.js';
+
+/**
+ * Create a new conversation and set it as active.
+ */
+export function createNewConversation() {
+  // Abort any current stream
+  state.abortStream();
+
+  const conv = {
+    id: generateId(),
+    title: '新对话',
+    modelId: state.selectedModelId,
+    systemPrompt: state.systemPrompt,
+    messages: [],
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+
+  state.addConversation(conv);
+  state.activeConversationId = conv.id;
+  saveConversation(conv);
+  saveActiveConversationId();
+  renderMessages();
+  renderConversationList();
+  updateSystemPromptIndicator();
+
+  // Focus input
+  const textarea = document.querySelector('#chat-input');
+  textarea?.focus();
+}
+
+/**
+ * Switch to an existing conversation.
+ * @param {string} conversationId
+ */
+export function switchConversation(conversationId) {
+  if (state.isStreaming) {
+    state.abortStream();
+  }
+
+  state.activeConversationId = conversationId;
+  saveActiveConversationId();
+
+  // Load conversation's system prompt
+  const conv = state.activeConversation;
+  if (conv) {
+    state.systemPrompt = conv.systemPrompt ?? DEFAULT_SYSTEM_PROMPT;
+  }
+
+  renderMessages();
+  renderConversationList();
+  updateSystemPromptIndicator();
+}
+
+/**
+ * Delete a conversation by ID.
+ * @param {string} conversationId
+ */
+export function deleteConversation(conversationId) {
+  state.removeConversation(conversationId);
+  saveConversations();
+  saveActiveConversationId();
+  renderMessages();
+  renderConversationList();
+  showToast('对话已删除', 'success');
+}
+
+/**
+ * Rename a conversation by ID.
+ * @param {string} conversationId
+ * @param {string} newTitle
+ */
+export function renameConversation(conversationId, newTitle) {
+  const conv = state.conversations.find((c) => c.id === conversationId);
+  if (!conv) return;
+
+  const trimmed = newTitle.trim();
+  if (!trimmed || trimmed === conv.title) return;
+
+  conv.title = truncate(trimmed, TITLE_MAX_LENGTH);
+  conv.updatedAt = Date.now();
+  saveConversation(conv);
+  renderConversationList();
+  showToast('对话已重命名', 'success');
+}
+
+/**
+ * Send a user message and stream the AI response.
+ * @param {string} text - User input text
+ */
+export async function sendMessage(text) {
+  const trimmed = text.trim();
+  if (!trimmed || state.isStreaming) return;
+
+  // Ensure we have an active conversation
+  if (!state.activeConversation) {
+    createNewConversation();
+  }
+
+  const conv = state.activeConversation;
+  if (!conv) return;
+
+  // Update model if changed
+  conv.modelId = state.selectedModelId;
+
+  // Create user message
+  const userMsg = {
+    id: generateId(),
+    role: 'user',
+    content: trimmed,
+    timestamp: Date.now(),
+  };
+
+  conv.messages.push(userMsg);
+
+  // Auto-title from first message
+  if (conv.messages.filter((m) => m.role === 'user').length === 1) {
+    conv.title = truncate(trimmed, TITLE_MAX_LENGTH);
+  }
+
+  conv.updatedAt = Date.now();
+  saveConversation(conv);
+
+  // Display user message
+  appendUserMessage(userMsg);
+  renderConversationList();
+
+  // Clear input
+  const textarea = document.querySelector('#chat-input');
+  if (textarea) {
+    textarea.value = '';
+    textarea.style.height = 'auto';
+  }
+  updateSendButton(false);
+
+  // Start streaming
+  state.isStreaming = true;
+  showStopButton(true);
+
+  // Build messages array for API
+  const apiMessages = buildAPIMessages(conv);
+
+  // Create streaming UI
+  const streaming = createStreamingMessage();
+  let contentBuffer = '';
+  let thinkingBuffer = '';
+
+  const isThinkingModel = state.selectedModel.type === 'thinking';
+  let reasoningBuffer = ''; // From reasoning_content field
+  let hasThinkTags = false;
+
+  await streamChatCompletion(apiMessages, {
+    onToken(token) {
+      contentBuffer += token;
+
+      if (isThinkingModel && contentBuffer.includes('<think>')) {
+        // Model uses inline <think> tags
+        hasThinkTags = true;
+        const parsed = parseThinkingContent(contentBuffer);
+        if (parsed.thinking) {
+          streaming.updateThinking(parsed.thinking);
+        }
+        if (parsed.content) {
+          streaming.updateContent(parsed.content);
+        }
+      } else if (isThinkingModel && !reasoningBuffer) {
+        // Thinking model but no <think> tags and no reasoning_content yet
+        // Show content normally (thinking may come via reasoning_content)
+        streaming.updateContent(contentBuffer);
+      } else {
+        streaming.updateContent(contentBuffer);
+      }
+    },
+
+    onThinking(token) {
+      // reasoning_content field (structured thinking from API)
+      reasoningBuffer += token;
+      streaming.updateThinking(reasoningBuffer);
+    },
+
+    onDone() {
+      state.isStreaming = false;
+      showStopButton(false);
+      updateSendButton(true);
+      streaming.finalize();
+
+      let finalContent;
+      let finalThinking;
+
+      if (hasThinkTags) {
+        const parsed = parseThinkingContent(contentBuffer);
+        finalThinking = parsed.thinking;
+        finalContent = parsed.content;
+      } else {
+        finalContent = contentBuffer;
+        finalThinking = reasoningBuffer;
+      }
+
+      if (!finalContent.trim() && finalThinking) {
+        finalContent = '*(模型仅返回了思考过程)*';
+      }
+
+      const aiMsg = {
+        id: generateId(),
+        role: 'ai',
+        content: finalContent,
+        thinking: finalThinking || undefined,
+        timestamp: Date.now(),
+      };
+
+      conv.messages.push(aiMsg);
+      conv.updatedAt = Date.now();
+      saveConversation(conv);
+      replaceStreamingMessage(streaming.element, aiMsg);
+      renderConversationList();
+      scrollToBottom();
+      textarea?.focus();
+    },
+
+    onError(err) {
+      state.isStreaming = false;
+      showStopButton(false);
+      updateSendButton(true);
+      streaming.element.remove();
+
+      const errorMsg = {
+        id: generateId(),
+        role: 'error',
+        content: err.message ?? '发生未知错误',
+        timestamp: Date.now(),
+      };
+
+      conv.messages.push(errorMsg);
+      conv.updatedAt = Date.now();
+      saveConversation(conv);
+      renderMessages();
+      showToast(err.message, 'error');
+      textarea?.focus();
+    },
+  });
+}
+
+/**
+ * Regenerate the last AI response.
+ */
+export async function regenerateLastResponse() {
+  const conv = state.activeConversation;
+  if (!conv || state.isStreaming) return;
+
+  // Remove the last AI/error message
+  while (conv.messages.length > 0) {
+    const last = conv.messages[conv.messages.length - 1];
+    if (last.role === 'ai' || last.role === 'error') {
+      conv.messages.pop();
+    } else {
+      break;
+    }
+  }
+
+  // Find the last user message
+  const lastUserMsg = [...conv.messages].reverse().find((m) => m.role === 'user');
+  if (!lastUserMsg) return;
+
+  conv.updatedAt = Date.now();
+  saveConversation(conv);
+  renderMessages();
+
+  // Re-send with current context
+  state.isStreaming = true;
+  showStopButton(true);
+  updateSendButton(false);
+
+  const apiMessages = buildAPIMessages(conv);
+  const streaming = createStreamingMessage();
+  let contentBuffer = '';
+  let reasoningBuffer = '';
+  const isThinkingModel = state.selectedModel.type === 'thinking';
+  let hasThinkTags = false;
+
+  await streamChatCompletion(apiMessages, {
+    onToken(token) {
+      contentBuffer += token;
+      if (isThinkingModel && contentBuffer.includes('<think>')) {
+        hasThinkTags = true;
+        const parsed = parseThinkingContent(contentBuffer);
+        if (parsed.thinking) streaming.updateThinking(parsed.thinking);
+        if (parsed.content) streaming.updateContent(parsed.content);
+      } else {
+        streaming.updateContent(contentBuffer);
+      }
+    },
+
+    onThinking(token) {
+      reasoningBuffer += token;
+      streaming.updateThinking(reasoningBuffer);
+    },
+
+    onDone() {
+      state.isStreaming = false;
+      showStopButton(false);
+      updateSendButton(true);
+      streaming.finalize();
+
+      let finalContent;
+      let finalThinking;
+
+      if (hasThinkTags) {
+        const parsed = parseThinkingContent(contentBuffer);
+        finalThinking = parsed.thinking;
+        finalContent = parsed.content;
+      } else {
+        finalContent = contentBuffer;
+        finalThinking = reasoningBuffer;
+      }
+
+      if (!finalContent.trim() && finalThinking) {
+        finalContent = '*(模型仅返回了思考过程)*';
+      }
+
+      const aiMsg = {
+        id: generateId(),
+        role: 'ai',
+        content: finalContent,
+        thinking: finalThinking || undefined,
+        timestamp: Date.now(),
+      };
+
+      conv.messages.push(aiMsg);
+      conv.updatedAt = Date.now();
+      saveConversation(conv);
+      replaceStreamingMessage(streaming.element, aiMsg);
+      renderConversationList();
+      scrollToBottom();
+    },
+
+    onError(err) {
+      state.isStreaming = false;
+      showStopButton(false);
+      updateSendButton(true);
+      streaming.element.remove();
+
+      const errorMsg = {
+        id: generateId(),
+        role: 'error',
+        content: err.message ?? '发生未知错误',
+        timestamp: Date.now(),
+      };
+
+      conv.messages.push(errorMsg);
+      conv.updatedAt = Date.now();
+      saveConversation(conv);
+      renderMessages();
+      showToast(err.message, 'error');
+    },
+  });
+}
+
+/**
+ * Build the API messages array from a conversation.
+ * @param {Object} conv
+ * @returns {Array<{role: string, content: string}>}
+ */
+function buildAPIMessages(conv) {
+  const messages = [];
+
+  // System prompt
+  const sysPrompt = conv.systemPrompt || state.systemPrompt || DEFAULT_SYSTEM_PROMPT;
+  messages.push({ role: 'system', content: sysPrompt });
+
+  // Chat history (only user and ai messages)
+  for (const msg of conv.messages) {
+    if (msg.role === 'user') {
+      messages.push({ role: 'user', content: msg.content });
+    } else if (msg.role === 'ai') {
+      messages.push({ role: 'assistant', content: msg.content });
+    }
+    // Skip error messages
+  }
+
+  return messages;
+}
+
+/**
+ * Parse thinking content from <think>...</think> tags.
+ * @param {string} text
+ * @returns {{ thinking: string, content: string }}
+ */
+function parseThinkingContent(text) {
+  let thinking = '';
+  let content = text;
+
+  // Handle <think>...</think> blocks
+  const thinkOpenIdx = text.indexOf('<think>');
+  if (thinkOpenIdx !== -1) {
+    const thinkCloseIdx = text.indexOf('</think>');
+    if (thinkCloseIdx !== -1) {
+      // Completed thinking block
+      thinking = text.substring(thinkOpenIdx + 7, thinkCloseIdx).trim();
+      content = (text.substring(0, thinkOpenIdx) + text.substring(thinkCloseIdx + 8)).trim();
+    } else {
+      // Still streaming thinking
+      thinking = text.substring(thinkOpenIdx + 7).trim();
+      content = text.substring(0, thinkOpenIdx).trim();
+    }
+  }
+
+  return { thinking, content };
+}
+
+/**
+ * Export the current conversation as a Markdown file.
+ */
+export function exportConversation() {
+  const conv = state.activeConversation;
+  if (!conv) {
+    showToast('没有可导出的对话', 'warning');
+    return;
+  }
+
+  const model = state.selectedModel;
+  let md = `# ${conv.title}\n\n`;
+  md += `- **模型**: ${model.name}\n`;
+  md += `- **创建时间**: ${new Date(conv.createdAt).toLocaleString('zh-CN')}\n`;
+  md += `- **消息数**: ${conv.messages.length}\n\n---\n\n`;
+
+  for (const msg of conv.messages) {
+    const time = new Date(msg.timestamp).toLocaleString('zh-CN');
+    if (msg.role === 'user') {
+      md += `## 👤 用户 (${time})\n\n${msg.content}\n\n`;
+    } else if (msg.role === 'ai') {
+      md += `## 🤖 AI (${time})\n\n`;
+      if (msg.thinking) {
+        md += `<details>\n<summary>💭 思考过程</summary>\n\n${msg.thinking}\n\n</details>\n\n`;
+      }
+      md += `${msg.content}\n\n`;
+    } else if (msg.role === 'error') {
+      md += `## ⚠️ 错误 (${time})\n\n${msg.content}\n\n`;
+    }
+    md += '---\n\n';
+  }
+
+  // Download file
+  const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${conv.title.replace(/[^\w\u4e00-\u9fa5]/g, '_')}.md`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+
+  showToast('导出成功', 'success');
+}
+
+/**
+ * Handle message action button clicks (copy, regenerate).
+ * @param {Event} e
+ */
+export function handleMessageAction(e) {
+  const btn = e.target.closest('.message__action-btn');
+  if (!btn) return;
+
+  const action = btn.dataset.action;
+
+  if (action === 'copy') {
+    const content = btn.dataset.content;
+    if (content) {
+      copyToClipboard(content).then((ok) => {
+        if (ok) showToast('已复制到剪贴板', 'success');
+      });
+    }
+  } else if (action === 'regenerate') {
+    regenerateLastResponse();
+  }
+}
+
+/**
+ * Handle thinking block toggle clicks.
+ * @param {Event} e
+ */
+export function handleThinkingToggle(e) {
+  const toggleBtn = e.target.closest('.thinking-block__toggle');
+  if (!toggleBtn) return;
+
+  const block = toggleBtn.closest('.thinking-block');
+  if (!block) return;
+
+  const isExpanded = block.classList.contains('expanded');
+  block.classList.toggle('expanded');
+
+  const label = toggleBtn.querySelector('span:last-child');
+  if (label) {
+    label.textContent = isExpanded ? '💭 查看思考过程' : '💭 收起思考过程';
+  }
+  toggleBtn.setAttribute('aria-expanded', !isExpanded);
+}

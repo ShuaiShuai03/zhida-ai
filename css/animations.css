@@ -1,0 +1,157 @@
+/* ============================================
+   Keyframes & Animations
+   ============================================ */
+
+/* ---- Fade In Up (messages, welcome) ---- */
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ---- Fade In ---- */
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* ---- Fade Out ---- */
+@keyframes fade-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+/* ---- Slide In Right (sidebar) ---- */
+@keyframes slide-in-right {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+/* ---- Slide Out Left ---- */
+@keyframes slide-out-left {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-100%);
+  }
+}
+
+/* ---- Toast Slide In ---- */
+@keyframes toast-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(100%) translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) translateY(0);
+  }
+}
+
+/* ---- Toast Slide Out ---- */
+@keyframes toast-slide-out {
+  from {
+    opacity: 1;
+    transform: translateX(0) translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(100%) translateY(-10px);
+  }
+}
+
+/* ---- Dot Bounce (loading) ---- */
+@keyframes dot-bounce {
+  0%, 80%, 100% {
+    transform: scale(0.6);
+    opacity: 0.4;
+  }
+  40% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* ---- Scale Up (modal) ---- */
+@keyframes scale-up {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* ---- Pulse (for streaming cursor) ---- */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+/* ---- Spin ---- */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* ---- Thinking Shimmer ---- */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+/* ============================================
+   Utility Animation Classes
+   ============================================ */
+
+.animate-fade-in {
+  animation: fade-in var(--transition-base) ease-out;
+}
+
+.animate-fade-in-up {
+  animation: fade-in-up var(--transition-base) ease-out;
+}
+
+.animate-scale-up {
+  animation: scale-up var(--transition-base) ease-out;
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+/* ---- Streaming Cursor ---- */
+.streaming-cursor::after {
+  content: '▍';
+  animation: pulse 1s ease-in-out infinite;
+  color: var(--color-primary);
+  margin-left: 1px;
+}
+
+/* ---- Thinking Shimmer Effect ---- */
+.thinking-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--color-thinking-bg) 25%,
+    var(--color-thinking-border) 50%,
+    var(--color-thinking-bg) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 2s ease-in-out infinite;
+}

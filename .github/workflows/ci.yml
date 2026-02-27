@@ -24,11 +24,16 @@ jobs:
           done
           echo "All required files present."
 
-      - name: Validate HTML syntax
-        uses: nickcox/html-linter-action@v0.1.0
-        with:
-          file: index.html
-        continue-on-error: true
+      - name: Validate HTML structure
+        run: |
+          echo "Checking HTML structure..."
+          # Verify it's a valid HTML5 document
+          grep -q '<!DOCTYPE html>' index.html || { echo "FAIL: Missing DOCTYPE"; exit 1; }
+          grep -q '<html' index.html || { echo "FAIL: Missing <html> tag"; exit 1; }
+          grep -q '</html>' index.html || { echo "FAIL: Missing </html> tag"; exit 1; }
+          grep -q '<head' index.html || { echo "FAIL: Missing <head> tag"; exit 1; }
+          grep -q '<body' index.html || { echo "FAIL: Missing <body> tag"; exit 1; }
+          echo "HTML structure valid."
 
       - name: Check for hardcoded secrets
         run: |

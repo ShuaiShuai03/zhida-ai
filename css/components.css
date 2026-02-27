@@ -251,11 +251,11 @@
   -webkit-backdrop-filter: blur(12px);
   pointer-events: auto;
   max-width: 360px;
-  animation: toast-slide-in var(--transition-base) ease-out forwards;
+  animation: toast-slide-in 0.3s ease-out forwards;
 }
 
 .toast.removing {
-  animation: toast-slide-out var(--transition-base) ease-in forwards;
+  animation: toast-slide-out 0.3s ease-in forwards;
 }
 
 .toast__icon {

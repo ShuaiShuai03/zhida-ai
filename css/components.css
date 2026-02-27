@@ -281,6 +281,100 @@
 }
 
 /* ============================================
+   File Upload & Attachments
+   ============================================ */
+
+.upload-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  transition: color var(--transition-fast), background var(--transition-fast);
+}
+
+.upload-btn:hover {
+  color: var(--color-primary);
+  background: var(--color-bg-tertiary);
+}
+
+.upload-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+.attachment-preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+}
+
+.attachment-preview.hidden {
+  display: none;
+}
+
+.attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 3px 8px 3px 10px;
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-full);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  max-width: 200px;
+}
+
+.attachment-chip__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachment-chip__remove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.attachment-chip__remove:hover {
+  color: var(--color-error);
+  background: var(--color-bg-secondary);
+}
+
+.attachment-chip__icon {
+  flex-shrink: 0;
+  font-size: 12px;
+}
+
+.attachment-chip--image {
+  border-color: var(--color-primary-muted, var(--color-border));
+}
+
+.input-area.drag-over .input-wrapper {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px var(--color-primary-muted, rgba(79, 70, 229, 0.2));
+}
+
+/* ============================================
    Settings Panel (Modal Form)
    ============================================ */
 

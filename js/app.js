@@ -50,10 +50,21 @@ import {
   handleMessageAction,
   handleThinkingToggle,
 } from './chat.js';
-import { debounce, isMac } from './utils.js';
+import { debounce, isMac, escapeHTML } from './utils.js';
 
 // ---- DOM References ----
 const $ = (sel) => document.querySelector(sel);
+
+// ---- Pending Attachments ----
+/** @type {Array<{type: string, name: string, content?: string, dataUrl?: string}>} */
+let pendingAttachments = [];
+const MAX_TEXT_FILE_SIZE = 100 * 1024;  // 100 KB
+const MAX_IMAGE_FILE_SIZE = 5 * 1024 * 1024; // 5 MB
+const TEXT_EXTENSIONS = new Set([
+  'txt','md','js','ts','jsx','tsx','py','json','csv','html','css','xml',
+  'yaml','yml','sh','bat','ps1','sql','go','rs','java','c','cpp','h',
+  'rb','php','log','conf','ini','toml','env','swift','kt','scala','r',
+]);
 
 /**
  * Fetch models from the API and update UI.
@@ -132,7 +143,7 @@ function init() {
 
   // First-run: prompt to configure API if not set
   if (!state.isApiConfigured) {
-    showToast('请先点击右上角设置按钮，配置 API 地址和密钥', 'warning', 6000);
+    showToast('请先点击右上角设置按钮，配置 API 地址和密钥', 'warning', 3000);
   } else {
     // Auto-refresh models from the API in background
     refreshModels();
@@ -143,40 +154,78 @@ function init() {
 // Input Events
 // ============================================
 
+function canSend() {
+  const textarea = $('#chat-input');
+  return (textarea?.value.trim().length > 0 || pendingAttachments.length > 0) && !state.isStreaming;
+}
+
+function doSend() {
+  const textarea = $('#chat-input');
+  if (!canSend()) return;
+  const attachments = [...pendingAttachments];
+  pendingAttachments = [];
+  renderAttachmentPreview();
+  sendMessage(textarea.value, attachments);
+}
+
 function bindInputEvents() {
   const textarea = $('#chat-input');
   const sendBtn = $('#send-btn');
   const stopBtn = $('#stop-btn');
+  const uploadBtn = $('#upload-btn');
+  const fileInput = $('#file-input');
 
   if (textarea) {
     // Auto-resize on input
     textarea.addEventListener('input', () => {
       autoResizeTextarea(textarea);
-      updateSendButton(textarea.value.trim().length > 0 && !state.isStreaming);
+      updateSendButton(canSend());
     });
 
     // Enter to send, Shift+Enter for newline
     textarea.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
         e.preventDefault();
-        if (textarea.value.trim() && !state.isStreaming) {
-          sendMessage(textarea.value);
-        }
+        doSend();
       }
     });
   }
 
   if (sendBtn) {
-    sendBtn.addEventListener('click', () => {
-      if (textarea?.value.trim() && !state.isStreaming) {
-        sendMessage(textarea.value);
-      }
-    });
+    sendBtn.addEventListener('click', doSend);
   }
 
   if (stopBtn) {
     stopBtn.addEventListener('click', () => {
       state.abortStream();
+    });
+  }
+
+  // File upload
+  if (uploadBtn && fileInput) {
+    uploadBtn.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', () => {
+      handleFileSelection(fileInput.files);
+      fileInput.value = '';
+    });
+  }
+
+  // Drag & drop files onto input area
+  const inputArea = document.querySelector('.input-area');
+  if (inputArea) {
+    inputArea.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      inputArea.classList.add('drag-over');
+    });
+    inputArea.addEventListener('dragleave', () => {
+      inputArea.classList.remove('drag-over');
+    });
+    inputArea.addEventListener('drop', (e) => {
+      e.preventDefault();
+      inputArea.classList.remove('drag-over');
+      if (e.dataTransfer?.files.length) {
+        handleFileSelection(e.dataTransfer.files);
+      }
     });
   }
 }
@@ -600,7 +649,8 @@ function bindPasteHandler() {
     for (const item of items) {
       if (item.type.startsWith('image/')) {
         e.preventDefault();
-        showToast('暂不支持图片输入', 'warning');
+        const file = item.getAsFile();
+        if (file) handleFileSelection([file]);
         return;
       }
     }
@@ -614,6 +664,106 @@ function bindPasteHandler() {
 function bindStorageWarning() {
   window.addEventListener('storage-full', () => {
     showToast('本地存储空间已满，请清理旧对话', 'error');
+  });
+}
+
+// ============================================
+// File Upload Handling
+// ============================================
+
+/**
+ * Process selected files and add to pending attachments.
+ * @param {FileList|Array<File>} files
+ */
+function handleFileSelection(files) {
+  for (const file of files) {
+    const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
+    const isImage = file.type.startsWith('image/');
+
+    if (isImage) {
+      if (file.size > MAX_IMAGE_FILE_SIZE) {
+        showToast(`图片 ${file.name} 超过 5MB 限制`, 'warning');
+        continue;
+      }
+      readFileAsDataUrl(file).then((dataUrl) => {
+        pendingAttachments.push({ type: 'image', name: file.name, dataUrl });
+        renderAttachmentPreview();
+        updateSendButton(canSend());
+      });
+    } else if (TEXT_EXTENSIONS.has(ext)) {
+      if (file.size > MAX_TEXT_FILE_SIZE) {
+        showToast(`文件 ${file.name} 超过 100KB 限制`, 'warning');
+        continue;
+      }
+      readFileAsText(file).then((content) => {
+        pendingAttachments.push({ type: 'text', name: file.name, content });
+        renderAttachmentPreview();
+        updateSendButton(canSend());
+      });
+    } else {
+      showToast(`不支持的文件类型: .${ext}`, 'warning');
+    }
+  }
+}
+
+/**
+ * Read a file as text.
+ * @param {File} file
+ * @returns {Promise<string>}
+ */
+function readFileAsText(file) {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => resolve('');
+    reader.readAsText(file);
+  });
+}
+
+/**
+ * Read a file as data URL (base64).
+ * @param {File} file
+ * @returns {Promise<string>}
+ */
+function readFileAsDataUrl(file) {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => resolve('');
+    reader.readAsDataURL(file);
+  });
+}
+
+/**
+ * Render the attachment preview chips.
+ */
+function renderAttachmentPreview() {
+  const container = $('#attachment-preview');
+  if (!container) return;
+
+  if (pendingAttachments.length === 0) {
+    container.classList.add('hidden');
+    container.innerHTML = '';
+    return;
+  }
+
+  container.classList.remove('hidden');
+  container.innerHTML = pendingAttachments.map((att, i) => `
+    <div class="attachment-chip${att.type === 'image' ? ' attachment-chip--image' : ''}">
+      <span class="attachment-chip__icon">${att.type === 'image' ? '🖼️' : '📄'}</span>
+      <span class="attachment-chip__name">${escapeHTML(att.name)}</span>
+      <button class="attachment-chip__remove" data-index="${i}" aria-label="移除">&times;</button>
+    </div>
+  `).join('');
+
+  // Bind remove buttons
+  container.querySelectorAll('.attachment-chip__remove').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const idx = parseInt(btn.dataset.index, 10);
+      pendingAttachments.splice(idx, 1);
+      renderAttachmentPreview();
+      updateSendButton(canSend());
+    });
   });
 }
 

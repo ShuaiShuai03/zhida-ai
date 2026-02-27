@@ -21,7 +21,7 @@ const $$ = (sel) => document.querySelectorAll(sel);
  * @param {'success'|'error'|'warning'|'info'} [type='info']
  * @param {number} [duration=3000]
  */
-export function showToast(message, type = 'info', duration = 3000) {
+export function showToast(message, type = 'info', duration = 1000) {
   const container = $('#toast-container');
   if (!container) return;
 

@@ -108,10 +108,12 @@ export function renameConversation(conversationId, newTitle) {
 /**
  * Send a user message and stream the AI response.
  * @param {string} text - User input text
+ * @param {Array} [attachments=[]] - File attachments ({ type, name, content, dataUrl })
  */
-export async function sendMessage(text) {
+export async function sendMessage(text, attachments = []) {
   const trimmed = text.trim();
-  if (!trimmed || state.isStreaming) return;
+  if (!trimmed && attachments.length === 0) return;
+  if (state.isStreaming) return;
 
   // Ensure we have an active conversation
   if (!state.activeConversation) {
@@ -124,11 +126,25 @@ export async function sendMessage(text) {
   // Update model if changed
   conv.modelId = state.selectedModelId;
 
+  // Build display content: user text + text file contents + image markers
+  let displayContent = trimmed;
+  const imageDataUrls = [];
+
+  for (const att of attachments) {
+    if (att.type === 'text') {
+      displayContent += `\n\n📎 ${att.name}:\n\`\`\`\n${att.content}\n\`\`\``;
+    } else if (att.type === 'image') {
+      displayContent += `\n\n📎 [图片: ${att.name}]`;
+      imageDataUrls.push(att.dataUrl);
+    }
+  }
+
   // Create user message
   const userMsg = {
     id: generateId(),
     role: 'user',
-    content: trimmed,
+    content: displayContent,
+    images: imageDataUrls.length > 0 ? imageDataUrls : undefined,
     timestamp: Date.now(),
   };
 
@@ -379,7 +395,7 @@ export async function regenerateLastResponse() {
 /**
  * Build the API messages array from a conversation.
  * @param {Object} conv
- * @returns {Array<{role: string, content: string}>}
+ * @returns {Array<{role: string, content: string|Array}>}
  */
 function buildAPIMessages(conv) {
   const messages = [];
@@ -391,7 +407,16 @@ function buildAPIMessages(conv) {
   // Chat history (only user and ai messages)
   for (const msg of conv.messages) {
     if (msg.role === 'user') {
-      messages.push({ role: 'user', content: msg.content });
+      if (msg.images && msg.images.length > 0) {
+        // Multimodal message: text + images
+        const parts = [{ type: 'text', text: msg.content }];
+        for (const dataUrl of msg.images) {
+          parts.push({ type: 'image_url', image_url: { url: dataUrl } });
+        }
+        messages.push({ role: 'user', content: parts });
+      } else {
+        messages.push({ role: 'user', content: msg.content });
+      }
     } else if (msg.role === 'ai') {
       messages.push({ role: 'assistant', content: msg.content });
     }

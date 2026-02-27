@@ -33,6 +33,11 @@
   color: #2563EB;
 }
 
+.badge--standard {
+  background: #F1F5F9;
+  color: #475569;
+}
+
 [data-theme='dark'] .badge--thinking {
   background: rgba(124, 58, 237, 0.15);
   color: #C4B5FD;
@@ -51,6 +56,11 @@
 [data-theme='dark'] .badge--reasoning {
   background: rgba(37, 99, 235, 0.15);
   color: #93C5FD;
+}
+
+[data-theme='dark'] .badge--standard {
+  background: rgba(71, 85, 105, 0.2);
+  color: #CBD5E1;
 }
 
 /* ============================================
@@ -194,6 +204,11 @@
 
 .btn--danger:hover {
   filter: brightness(1.1);
+}
+
+.btn--full-width {
+  width: 100%;
+  justify-content: center;
 }
 
 .btn--ghost {

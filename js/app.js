@@ -3,7 +3,6 @@
  */
 
 import { state } from './state.js';
-import { MODELS } from './config.js';
 import { initTheme, toggleTheme } from './theme.js';
 import { initMarkdown } from './markdown.js';
 import {
@@ -11,6 +10,8 @@ import {
   loadActiveConversationId,
   loadSelectedModel,
   loadSettings,
+  loadCachedModels,
+  saveCachedModels,
   saveSelectedModel,
   saveSettings,
   saveConversations,
@@ -18,6 +19,7 @@ import {
   clearAllData,
   isStorageNearFull,
 } from './storage.js';
+import { fetchAvailableModels } from './api.js';
 import {
   renderConversationList,
   renderModelDropdown,
@@ -54,6 +56,37 @@ import { debounce, isMac } from './utils.js';
 const $ = (sel) => document.querySelector(sel);
 
 /**
+ * Fetch models from the API and update UI.
+ * @param {boolean} [silent=true] - If false, show toast on success/failure
+ */
+async function refreshModels(silent = true) {
+  try {
+    const models = await fetchAvailableModels();
+    if (models.length > 0) {
+      state.models = models;
+      saveCachedModels();
+
+      // If current selection is no longer in the list, pick the first model
+      if (!models.some((m) => m.id === state.selectedModelId)) {
+        state.selectedModelId = models[0].id;
+        saveSelectedModel();
+      }
+
+      renderModelDropdown();
+      updateModelTrigger();
+      renderConversationList();
+
+      if (!silent) showToast(`已获取 ${models.length} 个可用模型`, 'success');
+    } else if (!silent) {
+      showToast('未获取到可用模型', 'warning');
+    }
+  } catch (err) {
+    console.warn('Failed to fetch models:', err);
+    if (!silent) showToast('获取模型列表失败，请检查 API 配置', 'error');
+  }
+}
+
+/**
  * Boot the application.
  */
 function init() {
@@ -65,9 +98,10 @@ function init() {
   initNetworkStatus();
 
   // Load persisted state
+  loadCachedModels();
   loadConversations();
-  loadSelectedModel();
   loadSettings();
+  loadSelectedModel();
   loadActiveConversationId();
 
   // Render initial UI
@@ -99,6 +133,9 @@ function init() {
   // First-run: prompt to configure API if not set
   if (!state.isApiConfigured) {
     showToast('请先点击右上角设置按钮，配置 API 地址和密钥', 'warning', 6000);
+  } else {
+    // Auto-refresh models from the API in background
+    refreshModels();
   }
 }
 
@@ -437,6 +474,37 @@ function bindModalEvents() {
       updateSystemPromptIndicator();
       closeModal();
       showToast('设置已保存', 'success');
+
+      // Refresh model list from new API config
+      if (state.isApiConfigured) {
+        refreshModels();
+      }
+    });
+  }
+
+  // Fetch models button
+  const fetchModelsBtn = $('#fetch-models-btn');
+  if (fetchModelsBtn) {
+    fetchModelsBtn.addEventListener('click', async () => {
+      const apiBaseUrlInput = $('#settings-api-base-url');
+      const apiKeyInput = $('#settings-api-key');
+
+      // Temporarily apply the form values so fetchAvailableModels uses them
+      const prevUrl = state.apiBaseUrl;
+      const prevKey = state.apiKey;
+      if (apiBaseUrlInput) state.apiBaseUrl = apiBaseUrlInput.value.trim().replace(/\/+$/, '');
+      if (apiKeyInput) state.apiKey = apiKeyInput.value.trim();
+
+      fetchModelsBtn.disabled = true;
+      fetchModelsBtn.textContent = '获取中...';
+
+      await refreshModels(false);
+
+      fetchModelsBtn.disabled = false;
+      fetchModelsBtn.textContent = '获取模型列表';
+
+      // If user hasn't saved yet and fetch failed, restore previous values
+      // (successful fetch already persisted via saveCachedModels)
     });
   }
 

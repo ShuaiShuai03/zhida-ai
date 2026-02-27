@@ -86,6 +86,7 @@ export const STORAGE_KEYS = {
   SELECTED_MODEL: 'ai_chat_model',
   THEME: 'ai_chat_theme',
   SETTINGS: 'ai_chat_settings',
+  MODELS: 'ai_chat_models',
 };
 
 // ---- Limits ----

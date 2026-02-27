@@ -2,7 +2,7 @@
  * localStorage operations — conversation persistence with error handling.
  */
 
-import { STORAGE_KEYS, MAX_CONVERSATIONS, MAX_STORAGE_MB, DEFAULT_TEMPERATURE, DEFAULT_MAX_TOKENS, DEFAULT_SYSTEM_PROMPT, MODELS } from './config.js';
+import { STORAGE_KEYS, MAX_CONVERSATIONS, MAX_STORAGE_MB, DEFAULT_TEMPERATURE, DEFAULT_MAX_TOKENS, DEFAULT_SYSTEM_PROMPT } from './config.js';
 import { state } from './state.js';
 import { byteSize } from './utils.js';
 
@@ -131,9 +131,28 @@ export function saveActiveConversationId() {
  */
 export function loadSelectedModel() {
   const modelId = getItem(STORAGE_KEYS.SELECTED_MODEL);
-  if (modelId && MODELS.some((m) => m.id === modelId)) {
+  if (modelId && state.models.some((m) => m.id === modelId)) {
     state.selectedModelId = modelId;
   }
+}
+
+// ---- Cached Models ----
+
+/**
+ * Load cached model list from localStorage into state.
+ */
+export function loadCachedModels() {
+  const data = getItem(STORAGE_KEYS.MODELS);
+  if (Array.isArray(data) && data.length > 0) {
+    state.models = data;
+  }
+}
+
+/**
+ * Save fetched model list to localStorage as cache.
+ */
+export function saveCachedModels() {
+  setItem(STORAGE_KEYS.MODELS, state.models);
 }
 
 /**

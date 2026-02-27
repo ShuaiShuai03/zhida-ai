@@ -3,7 +3,7 @@
  */
 
 import { state } from './state.js';
-import { MODELS, WELCOME_PROMPTS } from './config.js';
+import { WELCOME_PROMPTS } from './config.js';
 import { formatTime, formatRelativeTime, truncate, copyToClipboard, escapeHTML } from './utils.js';
 import { renderMarkdown, renderStreamingMarkdown } from './markdown.js';
 
@@ -94,7 +94,7 @@ export function renderConversationList(searchQuery = '') {
     item.setAttribute('tabindex', '0');
     item.setAttribute('aria-label', `对话: ${conv.title}`);
 
-    const modelDef = MODELS.find((m) => m.id === conv.modelId);
+    const modelDef = state.models.find((m) => m.id === conv.modelId);
     const modelName = modelDef?.name ?? conv.modelId;
 
     item.innerHTML = `
@@ -131,7 +131,7 @@ export function renderModelDropdown() {
   list.innerHTML = '';
   const fragment = document.createDocumentFragment();
 
-  for (const model of MODELS) {
+  for (const model of state.models) {
     const item = document.createElement('div');
     item.className = `model-selector__item${model.id === state.selectedModelId ? ' selected' : ''}`;
     item.dataset.modelId = model.id;

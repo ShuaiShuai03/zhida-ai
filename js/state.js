@@ -34,6 +34,8 @@ class AppState {
   #activeConversationId = null;
   /** @type {string} */
   #selectedModelId = MODELS[0].id;
+  /** @type {Array} */
+  #models = MODELS;
   /** @type {boolean} */
   #isStreaming = false;
   /** @type {AbortController|null} */
@@ -59,6 +61,7 @@ class AppState {
   get conversations() { return this.#conversations; }
   get activeConversationId() { return this.#activeConversationId; }
   get selectedModelId() { return this.#selectedModelId; }
+  get models() { return this.#models; }
   get isStreaming() { return this.#isStreaming; }
   get abortController() { return this.#abortController; }
   get sidebarOpen() { return this.#sidebarOpen; }
@@ -81,7 +84,7 @@ class AppState {
    * @returns {Object}
    */
   get selectedModel() {
-    return MODELS.find((m) => m.id === this.#selectedModelId) ?? MODELS[0];
+    return this.#models.find((m) => m.id === this.#selectedModelId) ?? this.#models[0];
   }
 
   // ---- Setters (with notification) ----
@@ -99,6 +102,11 @@ class AppState {
   set selectedModelId(value) {
     this.#selectedModelId = value;
     this.#notify('selectedModel');
+  }
+
+  set models(value) {
+    this.#models = value;
+    this.#notify('models');
   }
 
   set isStreaming(value) {

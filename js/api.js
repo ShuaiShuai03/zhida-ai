@@ -140,6 +140,85 @@ export async function streamChatCompletion(messages, callbacks) {
   }
 }
 
+// ---- Model Fetching ----
+
+/** Patterns for non-chat models to exclude from the list */
+const EXCLUDE_MODEL_RE = /embed|tts|whisper|dall-e|moderation|davinci-|babbage-|ada-\d|text-(?!.*chat)/i;
+
+/**
+ * Fetch available models from the API provider's /v1/models endpoint.
+ * @returns {Promise<Array>} Normalised model definitions
+ */
+export async function fetchAvailableModels() {
+  if (!state.isApiConfigured) return [];
+
+  const response = await fetch(`${state.apiBaseUrl}/v1/models`, {
+    headers: { 'Authorization': `Bearer ${state.apiKey}` },
+  });
+
+  if (!response.ok) {
+    throw new ChatError(`获取模型列表失败 (${response.status})`, 'server');
+  }
+
+  const json = await response.json();
+  return (json.data || [])
+    .filter((m) => !EXCLUDE_MODEL_RE.test(m.id))
+    .map(normalizeModel)
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * Convert a raw API model object into the app's model definition format.
+ */
+function normalizeModel(apiModel) {
+  const id = apiModel.id;
+  const name = formatModelName(id);
+  const { badge, badgeClass, type } = classifyModel(id);
+  const owner = apiModel.owned_by || '';
+  const description = owner ? `${owner} — ${id}` : id;
+  return { id, name, badge, badgeClass, type, description };
+}
+
+/** Known tokens that should be uppercased. */
+const UPPER_TOKENS = new Set(['gpt', 'vl', 'ai', 'xl', 'rl', 'glm', 'yi', 'llm', 'api']);
+
+/**
+ * Format a model ID string into a human-friendly display name.
+ * e.g. "gpt-4o-mini" → "GPT 4o Mini"
+ */
+function formatModelName(id) {
+  return id
+    .split(/[-_/]/)
+    .map((part) => UPPER_TOKENS.has(part.toLowerCase())
+      ? part.toUpperCase()
+      : part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+/**
+ * Classify a model ID into badge / type metadata.
+ */
+function classifyModel(id) {
+  const lower = id.toLowerCase();
+
+  if (/thinking|reasoner|reason|^o[13]-|deep-think/.test(lower)) {
+    return { badge: '🧠 深度思考', badgeClass: 'badge--thinking', type: 'thinking' };
+  }
+  if (/vl|vision|multimodal/.test(lower)) {
+    return { badge: '👁 多模态', badgeClass: 'badge--premium', type: 'standard' };
+  }
+  if (/gpt-4|max|pro|opus|large|flagship/.test(lower)) {
+    return { badge: '🌟 旗舰', badgeClass: 'badge--premium', type: 'standard' };
+  }
+  if (/mini|lite|small|nano|flash|turbo|instant/.test(lower)) {
+    return { badge: '⚡ 轻量', badgeClass: 'badge--fast', type: 'standard' };
+  }
+  if (/plus|sonnet|medium/.test(lower)) {
+    return { badge: '⚡ 高效', badgeClass: 'badge--standard', type: 'standard' };
+  }
+  return { badge: '🤖 标准', badgeClass: 'badge--standard', type: 'standard' };
+}
+
 /**
  * Custom error class for chat API errors.
  */

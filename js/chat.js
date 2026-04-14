@@ -3,8 +3,13 @@
  */
 
 import { state } from './state.js';
-import { generateId, truncate, copyToClipboard } from './utils.js';
+import { generateId, copyToClipboard } from './utils.js';
 import { TITLE_MAX_LENGTH, DEFAULT_SYSTEM_PROMPT } from './config.js';
+import {
+  buildAssistantMessageFromBuffers,
+  deriveConversationTitle,
+  resolveConversationModel,
+} from './conversation-utils.js';
 import { streamChatCompletion } from './api.js';
 import { saveConversation, saveConversations, saveActiveConversationId } from './storage.js';
 import {
@@ -98,7 +103,7 @@ export function renameConversation(conversationId, newTitle) {
   const trimmed = newTitle.trim();
   if (!trimmed || trimmed === conv.title) return;
 
-  conv.title = truncate(trimmed, TITLE_MAX_LENGTH);
+  conv.title = deriveConversationTitle(trimmed, [], { maxLength: TITLE_MAX_LENGTH });
   conv.updatedAt = Date.now();
   saveConversation(conv);
   renderConversationList();
@@ -152,7 +157,7 @@ export async function sendMessage(text, attachments = []) {
 
   // Auto-title from first message
   if (conv.messages.filter((m) => m.role === 'user').length === 1) {
-    conv.title = truncate(trimmed, TITLE_MAX_LENGTH);
+    conv.title = deriveConversationTitle(trimmed, attachments, { maxLength: TITLE_MAX_LENGTH });
   }
 
   conv.updatedAt = Date.now();
@@ -160,6 +165,7 @@ export async function sendMessage(text, attachments = []) {
 
   // Display user message
   appendUserMessage(userMsg);
+  renderConversationList();
   renderConversationList();
 
   // Clear input
@@ -180,78 +186,40 @@ export async function sendMessage(text, attachments = []) {
   // Create streaming UI
   const streaming = createStreamingMessage();
   let contentBuffer = '';
-  let thinkingBuffer = '';
-
+  let reasoningBuffer = '';
   const isThinkingModel = state.selectedModel.type === 'thinking';
-  let reasoningBuffer = ''; // From reasoning_content field
-  let hasThinkTags = false;
 
   await streamChatCompletion(apiMessages, {
     onToken(token) {
       contentBuffer += token;
-
-      if (isThinkingModel && contentBuffer.includes('<think>')) {
-        // Model uses inline <think> tags
-        hasThinkTags = true;
-        const parsed = parseThinkingContent(contentBuffer);
-        if (parsed.thinking) {
-          streaming.updateThinking(parsed.thinking);
-        }
-        if (parsed.content) {
-          streaming.updateContent(parsed.content);
-        }
-      } else if (isThinkingModel && !reasoningBuffer) {
-        // Thinking model but no <think> tags and no reasoning_content yet
-        // Show content normally (thinking may come via reasoning_content)
-        streaming.updateContent(contentBuffer);
-      } else {
-        streaming.updateContent(contentBuffer);
-      }
+      updateStreamingBuffers(streaming, contentBuffer, reasoningBuffer, isThinkingModel);
     },
 
     onThinking(token) {
-      // reasoning_content field (structured thinking from API)
       reasoningBuffer += token;
-      streaming.updateThinking(reasoningBuffer);
+      updateStreamingBuffers(streaming, contentBuffer, reasoningBuffer, isThinkingModel);
     },
 
     onDone() {
-      state.isStreaming = false;
-      showStopButton(false);
-      updateSendButton(true);
-      streaming.finalize();
+      finalizeStreamingResult({
+        conv,
+        streaming,
+        contentBuffer,
+        reasoningBuffer,
+        textarea,
+        wasStopped: false,
+      });
+    },
 
-      let finalContent;
-      let finalThinking;
-
-      if (hasThinkTags) {
-        const parsed = parseThinkingContent(contentBuffer);
-        finalThinking = parsed.thinking;
-        finalContent = parsed.content;
-      } else {
-        finalContent = contentBuffer;
-        finalThinking = reasoningBuffer;
-      }
-
-      if (!finalContent.trim() && finalThinking) {
-        finalContent = '*(模型仅返回了思考过程)*';
-      }
-
-      const aiMsg = {
-        id: generateId(),
-        role: 'ai',
-        content: finalContent,
-        thinking: finalThinking || undefined,
-        timestamp: Date.now(),
-      };
-
-      conv.messages.push(aiMsg);
-      conv.updatedAt = Date.now();
-      saveConversation(conv);
-      replaceStreamingMessage(streaming.element, aiMsg);
-      renderConversationList();
-      scrollToBottom();
-      textarea?.focus();
+    onAbort() {
+      finalizeStreamingResult({
+        conv,
+        streaming,
+        contentBuffer,
+        reasoningBuffer,
+        textarea,
+        wasStopped: true,
+      });
     },
 
     onError(err) {
@@ -271,6 +239,7 @@ export async function sendMessage(text, attachments = []) {
       conv.updatedAt = Date.now();
       saveConversation(conv);
       renderMessages();
+      renderConversationList();
       showToast(err.message, 'error');
       textarea?.focus();
     },
@@ -312,62 +281,36 @@ export async function regenerateLastResponse() {
   let contentBuffer = '';
   let reasoningBuffer = '';
   const isThinkingModel = state.selectedModel.type === 'thinking';
-  let hasThinkTags = false;
 
   await streamChatCompletion(apiMessages, {
     onToken(token) {
       contentBuffer += token;
-      if (isThinkingModel && contentBuffer.includes('<think>')) {
-        hasThinkTags = true;
-        const parsed = parseThinkingContent(contentBuffer);
-        if (parsed.thinking) streaming.updateThinking(parsed.thinking);
-        if (parsed.content) streaming.updateContent(parsed.content);
-      } else {
-        streaming.updateContent(contentBuffer);
-      }
+      updateStreamingBuffers(streaming, contentBuffer, reasoningBuffer, isThinkingModel);
     },
 
     onThinking(token) {
       reasoningBuffer += token;
-      streaming.updateThinking(reasoningBuffer);
+      updateStreamingBuffers(streaming, contentBuffer, reasoningBuffer, isThinkingModel);
     },
 
     onDone() {
-      state.isStreaming = false;
-      showStopButton(false);
-      updateSendButton(true);
-      streaming.finalize();
+      finalizeStreamingResult({
+        conv,
+        streaming,
+        contentBuffer,
+        reasoningBuffer,
+        wasStopped: false,
+      });
+    },
 
-      let finalContent;
-      let finalThinking;
-
-      if (hasThinkTags) {
-        const parsed = parseThinkingContent(contentBuffer);
-        finalThinking = parsed.thinking;
-        finalContent = parsed.content;
-      } else {
-        finalContent = contentBuffer;
-        finalThinking = reasoningBuffer;
-      }
-
-      if (!finalContent.trim() && finalThinking) {
-        finalContent = '*(模型仅返回了思考过程)*';
-      }
-
-      const aiMsg = {
-        id: generateId(),
-        role: 'ai',
-        content: finalContent,
-        thinking: finalThinking || undefined,
-        timestamp: Date.now(),
-      };
-
-      conv.messages.push(aiMsg);
-      conv.updatedAt = Date.now();
-      saveConversation(conv);
-      replaceStreamingMessage(streaming.element, aiMsg);
-      renderConversationList();
-      scrollToBottom();
+    onAbort() {
+      finalizeStreamingResult({
+        conv,
+        streaming,
+        contentBuffer,
+        reasoningBuffer,
+        wasStopped: true,
+      });
     },
 
     onError(err) {
@@ -387,6 +330,7 @@ export async function regenerateLastResponse() {
       conv.updatedAt = Date.now();
       saveConversation(conv);
       renderMessages();
+      renderConversationList();
       showToast(err.message, 'error');
     },
   });
@@ -427,30 +371,75 @@ function buildAPIMessages(conv) {
 }
 
 /**
- * Parse thinking content from <think>...</think> tags.
- * @param {string} text
- * @returns {{ thinking: string, content: string }}
+ * Update the streaming bubble with the latest buffers.
  */
-function parseThinkingContent(text) {
-  let thinking = '';
-  let content = text;
+function updateStreamingBuffers(streaming, contentBuffer, reasoningBuffer, isThinkingModel) {
+  const partial = buildAssistantMessageFromBuffers({
+    contentBuffer,
+    reasoningBuffer,
+    wasStopped: false,
+  });
 
-  // Handle <think>...</think> blocks
-  const thinkOpenIdx = text.indexOf('<think>');
-  if (thinkOpenIdx !== -1) {
-    const thinkCloseIdx = text.indexOf('</think>');
-    if (thinkCloseIdx !== -1) {
-      // Completed thinking block
-      thinking = text.substring(thinkOpenIdx + 7, thinkCloseIdx).trim();
-      content = (text.substring(0, thinkOpenIdx) + text.substring(thinkCloseIdx + 8)).trim();
-    } else {
-      // Still streaming thinking
-      thinking = text.substring(thinkOpenIdx + 7).trim();
-      content = text.substring(0, thinkOpenIdx).trim();
-    }
+  if (isThinkingModel && partial.thinking) {
+    streaming.updateThinking(partial.thinking);
   }
 
-  return { thinking, content };
+  if (partial.content) {
+    streaming.updateContent(partial.content);
+  } else if (!isThinkingModel && contentBuffer) {
+    streaming.updateContent(contentBuffer);
+  }
+}
+
+/**
+ * Finalize a streaming response into a persisted AI message when appropriate.
+ */
+function finalizeStreamingResult(options) {
+  const {
+    conv,
+    streaming,
+    contentBuffer,
+    reasoningBuffer,
+    textarea,
+    wasStopped,
+  } = options;
+
+  state.isStreaming = false;
+  showStopButton(false);
+  updateSendButton(true);
+  streaming.finalize();
+
+  const finalMessage = buildAssistantMessageFromBuffers({
+    contentBuffer,
+    reasoningBuffer,
+    wasStopped,
+  });
+
+  if (!finalMessage.hasVisibleOutput) {
+    streaming.element.remove();
+    textarea?.focus();
+    return;
+  }
+
+  const aiMsg = {
+    id: generateId(),
+    role: 'ai',
+    content: finalMessage.content,
+    thinking: finalMessage.thinking,
+    timestamp: Date.now(),
+  };
+
+  conv.messages.push(aiMsg);
+  conv.updatedAt = Date.now();
+  saveConversation(conv);
+
+  if (streaming.element.isConnected) {
+    replaceStreamingMessage(streaming.element, aiMsg);
+  }
+
+  renderConversationList();
+  scrollToBottom();
+  textarea?.focus();
 }
 
 /**
@@ -463,7 +452,11 @@ export function exportConversation() {
     return;
   }
 
-  const model = state.selectedModel;
+  // Use conversation's own model, not the currently selected one
+  const model = state.models.find((m) => m.id === conv.modelId) ?? {
+    id: conv.modelId,
+    name: conv.modelId || '未知模型',
+  };
   let md = `# ${conv.title}\n\n`;
   md += `- **模型**: ${model.name}\n`;
   md += `- **创建时间**: ${new Date(conv.createdAt).toLocaleString('zh-CN')}\n`;

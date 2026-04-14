@@ -1,27 +1,36 @@
 ## 变更描述
 
-<!-- 简要说明本 PR 做了什么 -->
+<!-- 简要说明问题、根因和本次修改内容 -->
 
 ## 变更类型
 
 - [ ] Bug 修复
 - [ ] 新功能
 - [ ] 文档更新
-- [ ] 代码重构
-- [ ] 样式调整
+- [ ] 测试补充
+- [ ] 可访问性修复
 - [ ] 其他：
 
 ## 关联 Issue
 
 <!-- 例如：Closes #123 -->
 
-## 测试
+## 验证
 
-- [ ] 已在 Chrome 中测试
-- [ ] 已在 Firefox 中测试
-- [ ] 已在移动端浏览器中测试
-- [ ] 深色模式正常
+- [ ] `python3 scripts/check_markdown.py`
+- [ ] `for f in js/*.js; do node --check "$f"; done`
+- [ ] `node --test tests/*.test.mjs`
+- [ ] `bash scripts/run_smoke.sh`
+
+## 手工检查
+
+- [ ] Chrome
+- [ ] Firefox
+- [ ] Safari（如适用）
+- [ ] 移动端布局（如适用）
+- [ ] 深浅色主题
 - [ ] 无 Console 错误
+- [ ] 文档 / 帮助文案已同步更新
 
 ## 截图（如有 UI 变更）
 

@@ -19,6 +19,22 @@ export const REQUEST_TIMEOUT = 60000; // 60 seconds
 // ---- Default System Prompt ----
 export const DEFAULT_SYSTEM_PROMPT = '你是一个有用的AI助手。请用简体中文回答所有问题。';
 
+// ---- File Upload Support ----
+export const SUPPORTED_TEXT_FILE_EXTENSIONS = [
+  'txt', 'md', 'js', 'ts', 'jsx', 'tsx', 'py', 'json', 'csv', 'html', 'css', 'xml',
+  'yaml', 'yml', 'sh', 'bat', 'ps1', 'sql', 'go', 'rs', 'java', 'c', 'cpp', 'h',
+  'rb', 'php', 'log', 'conf', 'ini', 'toml', 'env', 'swift', 'kt', 'scala', 'r',
+];
+
+export const SUPPORTED_IMAGE_FILE_EXTENSIONS = [
+  'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg',
+];
+
+export const FILE_INPUT_ACCEPT = [
+  ...SUPPORTED_TEXT_FILE_EXTENSIONS,
+  ...SUPPORTED_IMAGE_FILE_EXTENSIONS,
+].map((ext) => `.${ext}`).join(',');
+
 // ---- Model Definitions ----
 export const MODELS = [
   {

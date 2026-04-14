@@ -9,7 +9,8 @@ import { state } from './state.js';
  * @typedef {Object} StreamCallbacks
  * @property {function(string): void} onToken - Called for each content token
  * @property {function(string): void} [onThinking] - Called for reasoning_content tokens
- * @property {function(): void} onDone - Called when stream completes
+ * @property {function(): void} onDone - Called when stream completes successfully
+ * @property {function(): void} [onAbort] - Called when stream is cancelled by the user
  * @property {function(Error): void} onError - Called on error
  */
 
@@ -22,9 +23,8 @@ export async function streamChatCompletion(messages, callbacks) {
   const controller = new AbortController();
   state.abortController = controller;
 
-  const timeoutId = setTimeout(() => {
-    controller.abort();
-    callbacks.onError(new ChatError('请求超时，请重试', 'timeout'));
+  let timeoutId = setTimeout(() => {
+    controller.abort(new Error('timeout'));
   }, REQUEST_TIMEOUT);
 
   const model = state.selectedModel;
@@ -130,8 +130,13 @@ export async function streamChatCompletion(messages, callbacks) {
     if (err instanceof ChatError) {
       callbacks.onError(err);
     } else if (err.name === 'AbortError') {
-      // User-cancelled, do nothing
-      callbacks.onDone();
+      // Check if abort was caused by timeout
+      if (controller.signal.reason?.message === 'timeout') {
+        callbacks.onError(new ChatError('请求超时，请重试', 'timeout'));
+      } else {
+        // User manually stopped the stream
+        callbacks.onAbort?.();
+      }
     } else if (!navigator.onLine) {
       callbacks.onError(new ChatError('网络连接失败，请检查网络后重试', 'network'));
     } else {
@@ -147,13 +152,17 @@ const EXCLUDE_MODEL_RE = /embed|tts|whisper|dall-e|moderation|davinci-|babbage-|
 
 /**
  * Fetch available models from the API provider's /v1/models endpoint.
+ * @param {{ apiBaseUrl?: string, apiKey?: string }} [options]
  * @returns {Promise<Array>} Normalised model definitions
  */
-export async function fetchAvailableModels() {
-  if (!state.isApiConfigured) return [];
+export async function fetchAvailableModels(options = {}) {
+  const apiBaseUrl = options.apiBaseUrl ?? state.apiBaseUrl;
+  const apiKey = options.apiKey ?? state.apiKey;
 
-  const response = await fetch(`${state.apiBaseUrl}/v1/models`, {
-    headers: { 'Authorization': `Bearer ${state.apiKey}` },
+  if (!apiBaseUrl || !apiKey) return [];
+
+  const response = await fetch(`${apiBaseUrl}/v1/models`, {
+    headers: { 'Authorization': `Bearer ${apiKey}` },
   });
 
   if (!response.ok) {

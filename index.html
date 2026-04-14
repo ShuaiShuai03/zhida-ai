@@ -2,7 +2,7 @@
 <html lang="zh-CN" data-theme="light">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="description" content="智答 AI — 你的智能 AI 助手，支持多模型切换、深度思考、实时流式对话。" />
   <meta name="theme-color" content="#4F46E5" />
 
@@ -66,7 +66,7 @@
         </div>
       </div>
 
-      <div id="conversation-list" class="conversation-list" role="list" aria-label="对话列表">
+      <div id="conversation-list" class="conversation-list">
         <!-- Rendered by JS -->
       </div>
 
@@ -101,8 +101,8 @@
           </button>
 
           <!-- Model Selector -->
-          <div class="model-selector" role="listbox" aria-label="选择模型">
-            <button id="model-trigger" class="model-selector__trigger" aria-haspopup="listbox" aria-expanded="false">
+          <div class="model-selector">
+            <button id="model-trigger" class="model-selector__trigger" aria-haspopup="listbox" aria-expanded="false" aria-controls="model-list" aria-label="选择模型">
               <!-- Rendered by JS -->
             </button>
             <div class="model-selector__dropdown">
@@ -151,7 +151,7 @@
                 <button id="upload-btn" class="upload-btn" aria-label="上传文件" title="上传文件">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
                 </button>
-                <input type="file" id="file-input" multiple accept=".txt,.md,.js,.ts,.py,.json,.csv,.html,.css,.xml,.yaml,.yml,.sh,.sql,.go,.rs,.java,.c,.cpp,.h,.rb,.php,.log,.conf,.ini,.toml,.png,.jpg,.jpeg,.gif,.webp,.bmp,.svg" hidden />
+                <input type="file" id="file-input" multiple hidden />
                 <button id="send-btn" class="send-btn" disabled aria-label="发送消息">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
                 </button>
@@ -171,7 +171,7 @@
   <!-- ============ Modals ============ -->
 
   <!-- Settings Modal -->
-  <div id="settings-modal" class="modal-overlay" aria-hidden="true" role="dialog" aria-labelledby="settings-title">
+  <div id="settings-modal" class="modal-overlay" aria-hidden="true" aria-modal="true" role="dialog" aria-labelledby="settings-title">
     <div class="modal">
       <div class="modal__header">
         <h3 id="settings-title" class="modal__title">设置</h3>
@@ -184,14 +184,14 @@
           <!-- API Configuration -->
           <div class="settings-group">
             <label class="settings-group__label" for="settings-api-base-url">API 地址</label>
-            <p class="settings-group__desc">OpenAI 兼容接口的基础 URL（例如 https://api.openai.com）</p>
-            <input type="url" id="settings-api-base-url" placeholder="https://your-api-host.com" autocomplete="off" />
+            <p id="settings-api-base-url-desc" class="settings-group__desc">浏览器可直接访问且允许 CORS 的 OpenAI 兼容接口基础 URL（例如 https://api.openai.com）</p>
+            <input type="url" id="settings-api-base-url" placeholder="https://your-api-host.com" autocomplete="off" aria-describedby="settings-api-base-url-desc" />
           </div>
           <div class="settings-group">
             <label class="settings-group__label" for="settings-api-key">API 密钥</label>
-            <p class="settings-group__desc">用于身份验证的密钥（仅存储在浏览器本地）</p>
+            <p id="settings-api-key-desc" class="settings-group__desc">用于身份验证的密钥。它会保存在浏览器本地，并随请求发送到你配置的 API 服务。</p>
             <div class="api-key-wrapper">
-              <input type="password" id="settings-api-key" placeholder="sk-..." autocomplete="off" />
+              <input type="password" id="settings-api-key" placeholder="sk-..." autocomplete="off" aria-describedby="settings-api-key-desc" />
               <button type="button" id="toggle-api-key-visibility" class="api-key-toggle" aria-label="显示/隐藏密钥">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
               </button>
@@ -200,7 +200,7 @@
 
           <div class="settings-group">
             <button type="button" id="fetch-models-btn" class="btn btn--secondary btn--full-width">获取模型列表</button>
-            <p class="settings-group__desc" style="margin-top: 4px;">保存 API 配置后也会自动获取</p>
+            <p id="fetch-models-desc" class="settings-group__desc" style="margin-top: 4px;">仅校验当前表单配置；保存 API 配置后会自动刷新模型列表</p>
           </div>
 
           <hr class="settings-divider" />
@@ -208,17 +208,17 @@
           <!-- System Prompt -->
           <div class="settings-group">
             <label class="settings-group__label" for="settings-system-prompt">系统提示词</label>
-            <p class="settings-group__desc">自定义 AI 的行为和角色</p>
-            <textarea id="settings-system-prompt" rows="4" placeholder="输入自定义系统提示词..."></textarea>
+            <p id="settings-system-prompt-desc" class="settings-group__desc">自定义 AI 的行为和角色</p>
+            <textarea id="settings-system-prompt" rows="4" placeholder="输入自定义系统提示词..." aria-describedby="settings-system-prompt-desc"></textarea>
           </div>
 
           <!-- Temperature -->
           <div class="settings-group">
             <label class="settings-group__label">温度</label>
-            <p class="settings-group__desc">控制回答的随机性和创造性</p>
+            <p id="settings-temperature-desc" class="settings-group__desc">控制回答的随机性和创造性</p>
             <div class="slider-wrapper">
               <span class="slider-wrapper__label">精确</span>
-              <input type="range" id="settings-temperature" min="0" max="2" step="0.1" value="0.7" aria-label="温度" />
+              <input type="range" id="settings-temperature" min="0" max="2" step="0.1" value="0.7" aria-label="温度" aria-describedby="settings-temperature-desc" />
               <span class="slider-wrapper__label slider-wrapper__label--right">创意</span>
               <span id="temp-value" class="slider-value">0.7</span>
             </div>
@@ -227,8 +227,8 @@
           <!-- Max Tokens -->
           <div class="settings-group">
             <label class="settings-group__label" for="settings-max-tokens">最大回复长度</label>
-            <p class="settings-group__desc">单次回复的最大 token 数量</p>
-            <input type="number" id="settings-max-tokens" min="256" max="32768" step="256" value="4096" />
+            <p id="settings-max-tokens-desc" class="settings-group__desc">单次回复的最大 token 数量</p>
+            <input type="number" id="settings-max-tokens" min="256" max="32768" step="256" value="4096" aria-describedby="settings-max-tokens-desc" />
           </div>
         </div>
       </div>
@@ -240,7 +240,7 @@
   </div>
 
   <!-- Confirm Modal -->
-  <div id="confirm-modal" class="modal-overlay" aria-hidden="true" role="alertdialog" aria-labelledby="confirm-title">
+  <div id="confirm-modal" class="modal-overlay" aria-hidden="true" aria-modal="true" role="alertdialog" aria-labelledby="confirm-title">
     <div class="modal" style="max-width: 400px;">
       <div class="modal__header">
         <h3 id="confirm-title" class="modal__title">确认操作</h3>
@@ -259,7 +259,7 @@
   </div>
 
   <!-- Keyboard Shortcuts Modal -->
-  <div id="shortcuts-modal" class="modal-overlay" aria-hidden="true" role="dialog" aria-labelledby="shortcuts-title">
+  <div id="shortcuts-modal" class="modal-overlay" aria-hidden="true" aria-modal="true" role="dialog" aria-labelledby="shortcuts-title">
     <div class="modal" style="max-width: 440px;">
       <div class="modal__header">
         <h3 id="shortcuts-title" class="modal__title">⌨️ 快捷键</h3>
@@ -279,15 +279,15 @@
           </div>
           <div class="shortcuts-list__item">
             <span class="shortcuts-list__desc">新建对话</span>
-            <div class="shortcuts-list__keys"><kbd class="kbd">Ctrl</kbd><span>+</span><kbd class="kbd">N</kbd></div>
+            <div class="shortcuts-list__keys"><kbd class="kbd" data-shortcut-mod>Ctrl</kbd><span>+</span><kbd class="kbd">N</kbd></div>
           </div>
           <div class="shortcuts-list__item">
             <span class="shortcuts-list__desc">切换侧边栏</span>
-            <div class="shortcuts-list__keys"><kbd class="kbd">Ctrl</kbd><span>+</span><kbd class="kbd">Shift</kbd><span>+</span><kbd class="kbd">S</kbd></div>
+            <div class="shortcuts-list__keys"><kbd class="kbd" data-shortcut-mod>Ctrl</kbd><span>+</span><kbd class="kbd">Shift</kbd><span>+</span><kbd class="kbd">S</kbd></div>
           </div>
           <div class="shortcuts-list__item">
             <span class="shortcuts-list__desc">切换主题</span>
-            <div class="shortcuts-list__keys"><kbd class="kbd">Ctrl</kbd><span>+</span><kbd class="kbd">Shift</kbd><span>+</span><kbd class="kbd">L</kbd></div>
+            <div class="shortcuts-list__keys"><kbd class="kbd" data-shortcut-mod>Ctrl</kbd><span>+</span><kbd class="kbd">Shift</kbd><span>+</span><kbd class="kbd">L</kbd></div>
           </div>
           <div class="shortcuts-list__item">
             <span class="shortcuts-list__desc">关闭弹窗 / 停止生成</span>

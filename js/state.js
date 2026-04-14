@@ -234,6 +234,7 @@ class AppState {
    */
   abortStream() {
     if (this.#abortController) {
+      this.#abortController.abortReason ??= 'user';
       this.#abortController.abort();
       this.#abortController = null;
     }

@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Zhida AI Smoke Test</title>
+</head>
+<body data-smoke-result="running">
+  <pre id="log">Running smoke test…</pre>
+  <iframe
+    id="app-frame"
+    src="/index.html"
+    title="Zhida AI Smoke App"
+    style="width: 1280px; height: 900px; border: 0;"
+  ></iframe>
+
+  <script type="module">
+    const logNode = document.getElementById('log');
+
+    function log(message) {
+      logNode.textContent += `\n${message}`;
+    }
+
+    function fail(message) {
+      document.body.dataset.smokeResult = 'fail';
+      log(`FAIL: ${message}`);
+      throw new Error(message);
+    }
+
+    function click(element) {
+      element.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    }
+
+    function inputValue(element, value) {
+      element.focus();
+      element.value = value;
+      element.dispatchEvent(new Event('input', { bubbles: true }));
+      element.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+
+    async function waitFor(predicate, label, timeout = 8000) {
+      const startedAt = Date.now();
+      while (Date.now() - startedAt < timeout) {
+        const result = predicate();
+        if (result) return result;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      fail(`Timeout waiting for: ${label}`);
+    }
+
+    async function main() {
+      localStorage.clear();
+
+      const frame = document.getElementById('app-frame');
+      await new Promise((resolve) => frame.addEventListener('load', resolve, { once: true }));
+
+      const doc = frame.contentDocument;
+      const win = frame.contentWindow;
+      if (!doc || !win) fail('iframe not accessible');
+
+      await waitFor(() => doc.querySelector('#chat-input'), 'app init');
+      await waitFor(() => doc.querySelector('#theme-toggle')?.innerHTML.trim(), 'theme icon render');
+
+      if (doc.querySelector('#settings-modal')?.getAttribute('aria-modal') !== 'true') {
+        fail('settings modal should declare aria-modal');
+      }
+      if (doc.querySelector('#model-trigger')?.getAttribute('aria-controls') !== 'model-list') {
+        fail('model trigger should be bound to the listbox');
+      }
+      if (!doc.querySelector('#file-input')?.accept.includes('.tsx')) {
+        fail('file input accept should include .tsx');
+      }
+
+      click(doc.querySelector('#settings-btn'));
+      await waitFor(
+        () => doc.querySelector('#settings-modal')?.classList.contains('visible'),
+        'settings modal open'
+      );
+
+      inputValue(doc.querySelector('#settings-api-base-url'), 'http://127.0.0.1:11434');
+      inputValue(doc.querySelector('#settings-api-key'), 'smoke-key');
+      click(doc.querySelector('#fetch-models-btn'));
+
+      await waitFor(
+        () => doc.body.textContent.includes('已获取 2 个可用模型'),
+        'fetch models toast'
+      );
+
+      click(doc.querySelector('#settings-modal .modal__close'));
+      await waitFor(
+        () => doc.querySelector('#settings-modal')?.getAttribute('aria-hidden') === 'true',
+        'settings modal close'
+      );
+
+      inputValue(doc.querySelector('#chat-input'), 'unsaved config should fail');
+      click(doc.querySelector('#send-btn'));
+      await waitFor(
+        () => doc.body.textContent.includes('请先在设置中配置 API 地址和密钥'),
+        'unsaved config rejection'
+      );
+
+      click(doc.querySelector('#settings-btn'));
+      await waitFor(
+        () => doc.querySelector('#settings-modal')?.classList.contains('visible'),
+        'settings modal reopen'
+      );
+      inputValue(doc.querySelector('#settings-api-base-url'), 'http://127.0.0.1:11434');
+      inputValue(doc.querySelector('#settings-api-key'), 'smoke-key');
+      click(doc.querySelector('#settings-save-btn'));
+
+      await waitFor(
+        () => JSON.parse(win.localStorage.getItem('ai_chat_settings') || '{}').apiBaseUrl === 'http://127.0.0.1:11434',
+        'settings persisted'
+      );
+
+      click(doc.querySelector('#model-trigger'));
+      await waitFor(
+        () => doc.querySelector('#model-trigger')?.getAttribute('aria-expanded') === 'true',
+        'model selector expanded'
+      );
+      await waitFor(
+        () => Array.from(doc.querySelectorAll('.model-selector__item')).some((item) => item.textContent.includes('Smoke Standard')),
+        'mock model option render'
+      );
+      click(doc.querySelector('body'));
+      await waitFor(
+        () => doc.querySelector('#model-trigger')?.getAttribute('aria-expanded') === 'false',
+        'model selector collapsed'
+      );
+
+      click(doc.querySelector('#new-chat-btn'));
+      inputValue(doc.querySelector('#chat-input'), 'hello smoke');
+      click(doc.querySelector('#send-btn'));
+      await waitFor(
+        () => Array.from(doc.querySelectorAll('.message--ai .message__content')).some((node) => node.textContent.includes('Smoke test reply')),
+        'basic AI reply'
+      );
+
+      click(doc.querySelector('#new-chat-btn'));
+      inputValue(doc.querySelector('#chat-input'), 'slow response please');
+      click(doc.querySelector('#send-btn'));
+      await waitFor(
+        () => !doc.querySelector('#stop-btn')?.classList.contains('hidden'),
+        'stop button visible'
+      );
+      await waitFor(
+        () => Array.from(doc.querySelectorAll('.message--ai .message__content')).some((node) => node.textContent.includes('Partial')),
+        'partial response visible'
+      );
+      click(doc.querySelector('#stop-btn'));
+      await waitFor(
+        () => doc.querySelector('#stop-btn')?.classList.contains('hidden'),
+        'stop button hidden after abort'
+      );
+
+      const aiMessages = Array.from(doc.querySelectorAll('.message--ai .message__content'))
+        .map((node) => node.textContent.trim())
+        .filter(Boolean);
+      if (!aiMessages.some((text) => text.includes('Partial'))) {
+        fail('partial response should persist after manual stop');
+      }
+
+      document.body.dataset.smokeResult = 'pass';
+      log('PASS');
+    }
+
+    main().catch((error) => {
+      document.body.dataset.smokeResult = 'fail';
+      log(error?.stack || String(error));
+    });
+  </script>
+</body>
+</html>

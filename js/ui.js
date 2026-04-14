@@ -3,8 +3,8 @@
  */
 
 import { state } from './state.js';
-import { WELCOME_PROMPTS } from './config.js';
-import { formatTime, formatRelativeTime, truncate, copyToClipboard, escapeHTML } from './utils.js';
+import { DEFAULT_SYSTEM_PROMPT, WELCOME_PROMPTS } from './config.js';
+import { formatTime, formatRelativeTime, copyToClipboard, escapeHTML } from './utils.js';
 import { renderMarkdown, renderStreamingMarkdown } from './markdown.js';
 
 // ---- DOM References (cached) ----
@@ -19,7 +19,7 @@ const $$ = (sel) => document.querySelectorAll(sel);
  * Show a toast notification.
  * @param {string} message
  * @param {'success'|'error'|'warning'|'info'} [type='info']
- * @param {number} [duration=3000]
+ * @param {number} [duration=1000]
  */
 export function showToast(message, type = 'info', duration = 1000) {
   const container = $('#toast-container');
@@ -276,11 +276,11 @@ function createMessageElement(msg) {
     if (msg.thinking) {
       thinkingHTML = `
         <div class="thinking-block" data-msg-id="${msg.id}">
-          <button class="thinking-block__toggle" aria-expanded="false" aria-label="查看思考过程">
+          <button class="thinking-block__toggle" aria-expanded="false" aria-controls="thinking-content-${msg.id}" aria-label="查看思考过程">
             <span class="thinking-block__toggle-icon">▶</span>
             <span>💭 查看思考过程</span>
           </button>
-          <div class="thinking-block__content">
+          <div class="thinking-block__content" id="thinking-content-${msg.id}">
             <div class="message__content">${renderMarkdown(msg.thinking)}</div>
           </div>
         </div>
@@ -344,11 +344,11 @@ export function createStreamingMessage() {
     </div>
     <div class="message__bubble">
       <div class="thinking-block expanded hidden" id="streaming-thinking">
-        <button class="thinking-block__toggle" aria-expanded="true">
+        <button class="thinking-block__toggle" aria-expanded="true" aria-controls="streaming-thinking-content">
           <span class="thinking-block__toggle-icon">▶</span>
           <span>💭 思考中...</span>
         </button>
-        <div class="thinking-block__content">
+        <div class="thinking-block__content" id="streaming-thinking-content">
           <div class="message__content streaming-thinking-content"></div>
         </div>
       </div>
@@ -697,7 +697,7 @@ export function closeSidebar() {
 export function updateSystemPromptIndicator() {
   const indicator = $('.system-prompt-indicator');
   if (!indicator) return;
-  const isCustom = state.systemPrompt !== '你是一个有用的AI助手。请用简体中文回答所有问题。';
+  const isCustom = state.systemPrompt !== DEFAULT_SYSTEM_PROMPT;
   indicator.classList.toggle('active', isCustom);
 }
 

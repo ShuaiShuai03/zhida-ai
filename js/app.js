@@ -5,6 +5,7 @@
 import { state } from './state.js';
 import { initTheme, toggleTheme } from './theme.js';
 import { initMarkdown } from './markdown.js';
+import { FILE_INPUT_ACCEPT, SUPPORTED_TEXT_FILE_EXTENSIONS } from './config.js';
 import {
   loadConversations,
   loadActiveConversationId,
@@ -60,19 +61,47 @@ const $ = (sel) => document.querySelector(sel);
 let pendingAttachments = [];
 const MAX_TEXT_FILE_SIZE = 100 * 1024;  // 100 KB
 const MAX_IMAGE_FILE_SIZE = 5 * 1024 * 1024; // 5 MB
-const TEXT_EXTENSIONS = new Set([
-  'txt','md','js','ts','jsx','tsx','py','json','csv','html','css','xml',
-  'yaml','yml','sh','bat','ps1','sql','go','rs','java','c','cpp','h',
-  'rb','php','log','conf','ini','toml','env','swift','kt','scala','r',
-]);
+const TEXT_EXTENSIONS = new Set(SUPPORTED_TEXT_FILE_EXTENSIONS);
+
+function normalizeApiBaseUrl(value) {
+  return value.trim().replace(/\/+$/, '');
+}
+
+function getSettingsApiConfig() {
+  const apiBaseUrlInput = $('#settings-api-base-url');
+  const apiKeyInput = $('#settings-api-key');
+  return {
+    apiBaseUrl: apiBaseUrlInput ? normalizeApiBaseUrl(apiBaseUrlInput.value) : '',
+    apiKey: apiKeyInput ? apiKeyInput.value.trim() : '',
+  };
+}
+
+function setModelSelectorOpen(modelSelector, isOpen) {
+  if (!modelSelector) return;
+  modelSelector.classList.toggle('open', isOpen);
+  const trigger = modelSelector.querySelector('#model-trigger');
+  trigger?.setAttribute('aria-expanded', String(isOpen));
+}
+
+function updateShortcutLabels() {
+  const label = isMac() ? 'Cmd' : 'Ctrl';
+  document.querySelectorAll('[data-shortcut-mod]').forEach((node) => {
+    node.textContent = label;
+  });
+}
 
 /**
  * Fetch models from the API and update UI.
  * @param {boolean} [silent=true] - If false, show toast on success/failure
  */
-async function refreshModels(silent = true) {
+async function refreshModels(options = {}) {
+  const {
+    silent = true,
+    apiConfig = null,
+  } = options;
+
   try {
-    const models = await fetchAvailableModels();
+    const models = await fetchAvailableModels(apiConfig ?? undefined);
     if (models.length > 0) {
       state.models = models;
       saveCachedModels();
@@ -131,6 +160,7 @@ function init() {
   bindKeyboardShortcuts();
   bindPasteHandler();
   bindStorageWarning();
+  updateShortcutLabels();
 
   // Initial send button state
   const textarea = $('#chat-input');
@@ -203,6 +233,7 @@ function bindInputEvents() {
 
   // File upload
   if (uploadBtn && fileInput) {
+    fileInput.accept = FILE_INPUT_ACCEPT;
     uploadBtn.addEventListener('click', () => fileInput.click());
     fileInput.addEventListener('change', () => {
       handleFileSelection(fileInput.files);
@@ -425,13 +456,13 @@ function bindHeaderEvents() {
   if (modelTrigger && modelSelector) {
     modelTrigger.addEventListener('click', (e) => {
       e.stopPropagation();
-      modelSelector.classList.toggle('open');
+      setModelSelectorOpen(modelSelector, !modelSelector.classList.contains('open'));
     });
 
     // Close on outside click
     document.addEventListener('click', (e) => {
       if (!modelSelector.contains(e.target)) {
-        modelSelector.classList.remove('open');
+        setModelSelectorOpen(modelSelector, false);
       }
     });
   }
@@ -456,7 +487,7 @@ function bindHeaderEvents() {
       renderMessages(); // Update welcome screen model display
       renderConversationList();
 
-      modelSelector?.classList.remove('open');
+      setModelSelectorOpen(modelSelector, false);
     });
   }
 
@@ -507,7 +538,7 @@ function bindModalEvents() {
       const maxTokensInput = $('#settings-max-tokens');
 
       // Save API config — strip trailing slash from base URL
-      if (apiBaseUrlInput) state.apiBaseUrl = apiBaseUrlInput.value.trim().replace(/\/+$/, '');
+      if (apiBaseUrlInput) state.apiBaseUrl = normalizeApiBaseUrl(apiBaseUrlInput.value);
       if (apiKeyInput) state.apiKey = apiKeyInput.value.trim();
       if (sysPromptInput) state.systemPrompt = sysPromptInput.value;
       if (tempSlider) state.temperature = parseFloat(tempSlider.value);
@@ -535,25 +566,29 @@ function bindModalEvents() {
   const fetchModelsBtn = $('#fetch-models-btn');
   if (fetchModelsBtn) {
     fetchModelsBtn.addEventListener('click', async () => {
-      const apiBaseUrlInput = $('#settings-api-base-url');
-      const apiKeyInput = $('#settings-api-key');
-
-      // Temporarily apply the form values so fetchAvailableModels uses them
-      const prevUrl = state.apiBaseUrl;
-      const prevKey = state.apiKey;
-      if (apiBaseUrlInput) state.apiBaseUrl = apiBaseUrlInput.value.trim().replace(/\/+$/, '');
-      if (apiKeyInput) state.apiKey = apiKeyInput.value.trim();
+      const apiConfig = getSettingsApiConfig();
+      if (!apiConfig.apiBaseUrl || !apiConfig.apiKey) {
+        showToast('请先填写 API 地址和密钥', 'warning');
+        return;
+      }
 
       fetchModelsBtn.disabled = true;
       fetchModelsBtn.textContent = '获取中...';
 
-      await refreshModels(false);
+      try {
+        const models = await fetchAvailableModels(apiConfig);
+        if (models.length > 0) {
+          showToast(`已获取 ${models.length} 个可用模型`, 'success');
+        } else {
+          showToast('未获取到可用模型', 'warning');
+        }
+      } catch (err) {
+        console.warn('Failed to fetch models from settings form:', err);
+        showToast('获取模型列表失败，请检查 API 配置', 'error');
+      }
 
       fetchModelsBtn.disabled = false;
       fetchModelsBtn.textContent = '获取模型列表';
-
-      // If user hasn't saved yet and fetch failed, restore previous values
-      // (successful fetch already persisted via saveCachedModels)
     });
   }
 
@@ -606,14 +641,14 @@ function bindKeyboardShortcuts() {
     }
 
     // Ctrl/Cmd + Shift + S — Toggle sidebar
-    if (e[modKey] && e.shiftKey && e.key === 'S') {
+    if (e[modKey] && e.shiftKey && e.key.toLowerCase() === 's') {
       e.preventDefault();
       toggleSidebar();
       return;
     }
 
     // Ctrl/Cmd + Shift + L — Toggle theme
-    if (e[modKey] && e.shiftKey && e.key === 'L') {
+    if (e[modKey] && e.shiftKey && e.key.toLowerCase() === 'l') {
       e.preventDefault();
       toggleTheme();
       return;
@@ -627,7 +662,7 @@ function bindKeyboardShortcuts() {
         state.abortStream();
       } else {
         // Close model selector dropdown
-        document.querySelector('.model-selector')?.classList.remove('open');
+        setModelSelectorOpen(document.querySelector('.model-selector'), false);
       }
       return;
     }

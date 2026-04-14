@@ -2,7 +2,8 @@
  * localStorage operations — conversation persistence with error handling.
  */
 
-import { STORAGE_KEYS, MAX_CONVERSATIONS, MAX_STORAGE_MB, DEFAULT_TEMPERATURE, DEFAULT_MAX_TOKENS, DEFAULT_SYSTEM_PROMPT } from './config.js';
+import { STORAGE_KEYS, MAX_CONVERSATIONS, MAX_STORAGE_MB } from './config.js';
+import { sortConversationsByUpdatedAt } from './conversation-utils.js';
 import { state } from './state.js';
 import { byteSize } from './utils.js';
 
@@ -72,9 +73,7 @@ export function isStorageNearFull() {
 export function loadConversations() {
   const data = getItem(STORAGE_KEYS.CONVERSATIONS);
   if (Array.isArray(data)) {
-    // Sort by updatedAt descending
-    data.sort((a, b) => (b.updatedAt ?? b.createdAt) - (a.updatedAt ?? a.createdAt));
-    state.conversations = data;
+    state.conversations = sortConversationsByUpdatedAt(data);
   }
 }
 
@@ -82,12 +81,12 @@ export function loadConversations() {
  * Save all conversations to localStorage (with pruning).
  */
 export function saveConversations() {
-  let convs = state.conversations;
+  let convs = sortConversationsByUpdatedAt(state.conversations);
   // Prune oldest conversations if over limit
   if (convs.length > MAX_CONVERSATIONS) {
     convs = convs.slice(0, MAX_CONVERSATIONS);
-    state.conversations = convs;
   }
+  state.conversations = convs;
   setItem(STORAGE_KEYS.CONVERSATIONS, convs);
 }
 

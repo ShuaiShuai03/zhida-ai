@@ -8,37 +8,63 @@ on:
 
 jobs:
   validate:
-    name: Validate HTML & Assets
+    name: Validate Docs, Scripts, and Logic
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - name: Check required files exist
         run: |
-          echo "Checking project structure..."
-          for f in index.html js/app.js js/config.js js/api.js css/variables.css; do
+          for f in \
+            index.html \
+            js/app.js \
+            js/api.js \
+            js/config.js \
+            js/conversation-utils.js \
+            scripts/check_markdown.py \
+            scripts/mock_api.py \
+            scripts/run_smoke.sh \
+            tests/conversation-utils.test.mjs \
+            tests/smoke.html; do
             if [ ! -f "$f" ]; then
               echo "FAIL: Missing $f"
               exit 1
             fi
           done
-          echo "All required files present."
 
       - name: Validate HTML structure
         run: |
-          echo "Checking HTML structure..."
-          # Verify it's a valid HTML5 document
           grep -q '<!DOCTYPE html>' index.html || { echo "FAIL: Missing DOCTYPE"; exit 1; }
           grep -q '<html' index.html || { echo "FAIL: Missing <html> tag"; exit 1; }
           grep -q '</html>' index.html || { echo "FAIL: Missing </html> tag"; exit 1; }
           grep -q '<head' index.html || { echo "FAIL: Missing <head> tag"; exit 1; }
           grep -q '<body' index.html || { echo "FAIL: Missing <body> tag"; exit 1; }
-          echo "HTML structure valid."
+
+      - name: Check Markdown links and placeholders
+        run: python3 scripts/check_markdown.py
+
+      - name: Verify repository identity in docs
+        run: |
+          # Check that clone URLs use the correct repository
+          if grep -q 'your-username' README.md CONTRIBUTING.md; then
+            echo "FAIL: Found placeholder 'your-username' in documentation"
+            exit 1
+          fi
+
+          # Verify correct repository name in clone commands
+          if ! grep -q 'ShuaiShuai03/zhida-ai' README.md; then
+            echo "FAIL: README.md missing correct repository clone URL"
+            exit 1
+          fi
+
+          # Check that GitHub UI relative paths are not used
+          if grep -qE '\.\./\.\./issues|\.\./\.\./security|\.\./\.\./actions' README.md CONTRIBUTING.md SECURITY.md CODE_OF_CONDUCT.md; then
+            echo "FAIL: Found GitHub UI relative paths (../../) in documentation"
+            exit 1
+          fi
 
       - name: Check for hardcoded secrets
         run: |
-          echo "Scanning for potential secrets..."
-          # Fail if config.js contains a real API key (non-empty default)
           if grep -qP "DEFAULT_API_KEY\s*=\s*'[^']{10,}'" js/config.js; then
             echo "FAIL: js/config.js contains a hardcoded API key!"
             exit 1
@@ -47,13 +73,39 @@ jobs:
             echo "FAIL: js/config.js contains a hardcoded API URL!"
             exit 1
           fi
-          echo "No secrets detected."
 
-      - name: Validate JSON (if any)
+      - name: Validate shell and Python scripts
         run: |
-          find . -name '*.json' -not -path './.git/*' -not -path './node_modules/*' | while read f; do
-            python3 -c "import json; json.load(open('$f'))" 2>/dev/null || echo "WARN: Invalid JSON in $f"
+          bash -n scripts/start.sh
+          bash -n scripts/run_smoke.sh
+          python3 -m py_compile scripts/check_markdown.py scripts/mock_api.py
+
+      - name: Validate PowerShell script when pwsh is available
+        run: |
+          if command -v pwsh >/dev/null 2>&1; then
+            pwsh -NoProfile -Command "[void][System.Management.Automation.Language.Parser]::ParseFile('scripts/start.ps1',[ref]$null,[ref]$null)"
+          else
+            echo "pwsh not installed; skipping PowerShell syntax check"
+          fi
+
+      - name: Validate JavaScript syntax
+        run: |
+          for f in js/*.js; do
+            node --check "$f"
           done
+
+      - name: Run unit tests
+        run: node --test tests/*.test.mjs
+
+  smoke:
+    name: Browser Smoke Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Chrome availability
+        run: google-chrome --version
+      - name: Run smoke test
+        run: bash scripts/run_smoke.sh
 
   docker:
     name: Docker Build Test

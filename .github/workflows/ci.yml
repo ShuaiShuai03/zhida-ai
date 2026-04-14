@@ -81,12 +81,19 @@ jobs:
           python3 -m py_compile scripts/check_markdown.py scripts/mock_api.py
 
       - name: Validate PowerShell script when pwsh is available
+        shell: bash
         run: |
-          if command -v pwsh >/dev/null 2>&1; then
-            pwsh -NoProfile -Command "[void][System.Management.Automation.Language.Parser]::ParseFile('scripts/start.ps1',[ref]$null,[ref]$null)"
-          else
+          if ! command -v pwsh >/dev/null 2>&1; then
             echo "pwsh not installed; skipping PowerShell syntax check"
+            exit 0
           fi
+
+          if [ ! -f scripts/start.ps1 ]; then
+            echo "scripts/start.ps1 not found; skipping PowerShell syntax check"
+            exit 0
+          fi
+
+          pwsh -NoProfile -Command "[void][System.Management.Automation.Language.Parser]::ParseFile('scripts/start.ps1',[ref]\$null,[ref]\$null)"
 
       - name: Validate JavaScript syntax
         run: |

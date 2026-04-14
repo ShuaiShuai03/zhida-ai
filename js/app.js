@@ -735,6 +735,10 @@ function bindStorageWarning() {
   window.addEventListener('storage-full', () => {
     showToast('本地存储空间已满，请清理旧对话', 'error');
   }, { signal });
+  window.addEventListener('storage-error', (e) => {
+    const detail = e.detail;
+    showToast(`存储${detail.operation === 'read' ? '读取' : '写入'}失败`, 'error');
+  }, { signal });
 }
 
 // ============================================

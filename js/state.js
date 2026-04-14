@@ -40,6 +40,8 @@ class AppState {
   #isStreaming = false;
   /** @type {AbortController|null} */
   #abortController = null;
+  /** @type {string|null} */
+  #currentRequestId = null;
   /** @type {boolean} */
   #sidebarOpen = false;
   /** @type {number} */
@@ -64,6 +66,7 @@ class AppState {
   get models() { return this.#models; }
   get isStreaming() { return this.#isStreaming; }
   get abortController() { return this.#abortController; }
+  get currentRequestId() { return this.#currentRequestId; }
   get sidebarOpen() { return this.#sidebarOpen; }
   get temperature() { return this.#temperature; }
   get maxTokens() { return this.#maxTokens; }
@@ -116,6 +119,10 @@ class AppState {
 
   set abortController(value) {
     this.#abortController = value;
+  }
+
+  set currentRequestId(value) {
+    this.#currentRequestId = value;
   }
 
   set sidebarOpen(value) {

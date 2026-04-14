@@ -18,6 +18,8 @@ function getItem(key) {
     return raw ? JSON.parse(raw) : null;
   } catch (e) {
     console.warn('localStorage read error:', e);
+    // Emit event for UI notification
+    window.dispatchEvent(new CustomEvent('storage-error', { detail: { operation: 'read', error: e } }));
     return null;
   }
 }
@@ -40,6 +42,8 @@ function setItem(key, value) {
       return false;
     }
     console.warn('localStorage write error:', e);
+    // Emit event for UI notification
+    window.dispatchEvent(new CustomEvent('storage-error', { detail: { operation: 'write', error: e } }));
     return false;
   }
 }

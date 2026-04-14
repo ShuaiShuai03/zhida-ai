@@ -128,6 +128,10 @@ export async function sendMessage(text, attachments = []) {
   const conv = state.activeConversation;
   if (!conv) return;
 
+  // Generate unique request ID to prevent race conditions
+  const requestId = generateId();
+  state.currentRequestId = requestId;
+
   // Update model if changed
   conv.modelId = state.selectedModelId;
 
@@ -191,16 +195,22 @@ export async function sendMessage(text, attachments = []) {
 
   await streamChatCompletion(apiMessages, {
     onToken(token) {
+      // Ignore if this is not the current request
+      if (state.currentRequestId !== requestId) return;
       contentBuffer += token;
       updateStreamingBuffers(streaming, contentBuffer, reasoningBuffer, isThinkingModel);
     },
 
     onThinking(token) {
+      // Ignore if this is not the current request
+      if (state.currentRequestId !== requestId) return;
       reasoningBuffer += token;
       updateStreamingBuffers(streaming, contentBuffer, reasoningBuffer, isThinkingModel);
     },
 
     onDone() {
+      // Ignore if this is not the current request
+      if (state.currentRequestId !== requestId) return;
       finalizeStreamingResult({
         conv,
         streaming,
@@ -212,6 +222,8 @@ export async function sendMessage(text, attachments = []) {
     },
 
     onAbort() {
+      // Ignore if this is not the current request
+      if (state.currentRequestId !== requestId) return;
       finalizeStreamingResult({
         conv,
         streaming,
@@ -223,6 +235,8 @@ export async function sendMessage(text, attachments = []) {
     },
 
     onError(err) {
+      // Ignore if this is not the current request
+      if (state.currentRequestId !== requestId) return;
       state.isStreaming = false;
       showStopButton(false);
       updateSendButton(true);

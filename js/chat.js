@@ -196,21 +196,19 @@ export async function sendMessage(text, attachments = []) {
   await streamChatCompletion(apiMessages, {
     onToken(token) {
       // Ignore if this is not the current request
-      if (state.currentRequestId !== requestId) return;
+      if (!isCurrentStreamRequest(requestId)) return;
       contentBuffer += token;
       updateStreamingBuffers(streaming, contentBuffer, reasoningBuffer, isThinkingModel);
     },
 
     onThinking(token) {
       // Ignore if this is not the current request
-      if (state.currentRequestId !== requestId) return;
+      if (!isCurrentStreamRequest(requestId)) return;
       reasoningBuffer += token;
       updateStreamingBuffers(streaming, contentBuffer, reasoningBuffer, isThinkingModel);
     },
 
     onDone() {
-      // Ignore if this is not the current request
-      if (state.currentRequestId !== requestId) return;
       finalizeStreamingResult({
         conv,
         streaming,
@@ -218,12 +216,12 @@ export async function sendMessage(text, attachments = []) {
         reasoningBuffer,
         textarea,
         wasStopped: false,
+        syncUi: isCurrentStreamRequest(requestId),
+        requestId,
       });
     },
 
     onAbort() {
-      // Ignore if this is not the current request
-      if (state.currentRequestId !== requestId) return;
       finalizeStreamingResult({
         conv,
         streaming,
@@ -231,31 +229,20 @@ export async function sendMessage(text, attachments = []) {
         reasoningBuffer,
         textarea,
         wasStopped: true,
+        syncUi: isCurrentStreamRequest(requestId),
+        requestId,
       });
     },
 
     onError(err) {
-      // Ignore if this is not the current request
-      if (state.currentRequestId !== requestId) return;
-      state.isStreaming = false;
-      showStopButton(false);
-      updateSendButton(true);
-      streaming.element.remove();
-
-      const errorMsg = {
-        id: generateId(),
-        role: 'error',
-        content: err.message ?? '发生未知错误',
-        timestamp: Date.now(),
-      };
-
-      conv.messages.push(errorMsg);
-      conv.updatedAt = Date.now();
-      saveConversation(conv);
-      renderMessages();
-      renderConversationList();
-      showToast(err.message, 'error');
-      textarea?.focus();
+      commitStreamingError({
+        conv,
+        streaming,
+        err,
+        textarea,
+        syncUi: isCurrentStreamRequest(requestId),
+        requestId,
+      });
     },
   });
 }
@@ -286,6 +273,8 @@ export async function regenerateLastResponse() {
   renderMessages();
 
   // Re-send with current context
+  const requestId = generateId();
+  state.currentRequestId = requestId;
   state.isStreaming = true;
   showStopButton(true);
   updateSendButton(false);
@@ -295,14 +284,17 @@ export async function regenerateLastResponse() {
   let contentBuffer = '';
   let reasoningBuffer = '';
   const isThinkingModel = state.selectedModel.type === 'thinking';
+  const textarea = document.querySelector('#chat-input');
 
   await streamChatCompletion(apiMessages, {
     onToken(token) {
+      if (!isCurrentStreamRequest(requestId)) return;
       contentBuffer += token;
       updateStreamingBuffers(streaming, contentBuffer, reasoningBuffer, isThinkingModel);
     },
 
     onThinking(token) {
+      if (!isCurrentStreamRequest(requestId)) return;
       reasoningBuffer += token;
       updateStreamingBuffers(streaming, contentBuffer, reasoningBuffer, isThinkingModel);
     },
@@ -313,7 +305,10 @@ export async function regenerateLastResponse() {
         streaming,
         contentBuffer,
         reasoningBuffer,
+        textarea,
         wasStopped: false,
+        syncUi: isCurrentStreamRequest(requestId),
+        requestId,
       });
     },
 
@@ -323,29 +318,22 @@ export async function regenerateLastResponse() {
         streaming,
         contentBuffer,
         reasoningBuffer,
+        textarea,
         wasStopped: true,
+        syncUi: isCurrentStreamRequest(requestId),
+        requestId,
       });
     },
 
     onError(err) {
-      state.isStreaming = false;
-      showStopButton(false);
-      updateSendButton(true);
-      streaming.element.remove();
-
-      const errorMsg = {
-        id: generateId(),
-        role: 'error',
-        content: err.message ?? '发生未知错误',
-        timestamp: Date.now(),
-      };
-
-      conv.messages.push(errorMsg);
-      conv.updatedAt = Date.now();
-      saveConversation(conv);
-      renderMessages();
-      renderConversationList();
-      showToast(err.message, 'error');
+      commitStreamingError({
+        conv,
+        streaming,
+        err,
+        textarea,
+        syncUi: isCurrentStreamRequest(requestId),
+        requestId,
+      });
     },
   });
 }
@@ -405,6 +393,16 @@ function updateStreamingBuffers(streaming, contentBuffer, reasoningBuffer, isThi
   }
 }
 
+function isCurrentStreamRequest(requestId) {
+  return state.currentRequestId === requestId;
+}
+
+function clearCurrentStreamRequest(requestId) {
+  if (requestId && isCurrentStreamRequest(requestId)) {
+    state.currentRequestId = null;
+  }
+}
+
 /**
  * Finalize a streaming response into a persisted AI message when appropriate.
  */
@@ -416,11 +414,18 @@ function finalizeStreamingResult(options) {
     reasoningBuffer,
     textarea,
     wasStopped,
+    syncUi = true,
+    requestId = null,
   } = options;
 
-  state.isStreaming = false;
-  showStopButton(false);
-  updateSendButton(true);
+  // Stale callbacks still need to clean up their own UI/message, but they must
+  // not override the controls for a newer active request.
+  if (syncUi) {
+    state.isStreaming = false;
+    showStopButton(false);
+    updateSendButton(true);
+    clearCurrentStreamRequest(requestId);
+  }
   streaming.finalize();
 
   const finalMessage = buildAssistantMessageFromBuffers({
@@ -431,7 +436,9 @@ function finalizeStreamingResult(options) {
 
   if (!finalMessage.hasVisibleOutput) {
     streaming.element.remove();
-    textarea?.focus();
+    if (syncUi) {
+      textarea?.focus();
+    }
     return;
   }
 
@@ -452,8 +459,53 @@ function finalizeStreamingResult(options) {
   }
 
   renderConversationList();
-  scrollToBottom();
-  textarea?.focus();
+  if (syncUi) {
+    scrollToBottom();
+    textarea?.focus();
+  }
+}
+
+function commitStreamingError(options) {
+  const {
+    conv,
+    streaming,
+    err,
+    textarea,
+    syncUi = true,
+    requestId = null,
+  } = options;
+
+  if (syncUi) {
+    state.isStreaming = false;
+    showStopButton(false);
+    updateSendButton(true);
+    clearCurrentStreamRequest(requestId);
+  }
+
+  const errorMsg = {
+    id: generateId(),
+    role: 'error',
+    content: err.message ?? '发生未知错误',
+    timestamp: Date.now(),
+  };
+
+  conv.messages.push(errorMsg);
+  conv.updatedAt = Date.now();
+  saveConversation(conv);
+
+  if (streaming.element.isConnected) {
+    replaceStreamingMessage(streaming.element, errorMsg);
+  } else if (syncUi && state.activeConversationId === conv.id) {
+    renderMessages();
+  }
+
+  renderConversationList();
+
+  if (syncUi) {
+    scrollToBottom();
+    showToast(errorMsg.content, 'error');
+    textarea?.focus();
+  }
 }
 
 /**

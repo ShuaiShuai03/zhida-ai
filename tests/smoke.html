@@ -148,9 +148,37 @@
         'partial response visible'
       );
       click(doc.querySelector('#stop-btn'));
+
+      inputValue(doc.querySelector('#chat-input'), 'follow up after stop');
+      click(doc.querySelector('#send-btn'));
+
+      await waitFor(
+        () => doc.querySelectorAll('.message--user').length >= 2,
+        'follow-up user message appended'
+      );
+      await waitFor(
+        () => Array.from(doc.querySelectorAll('.message--ai .message__content')).some((node) => node.textContent.includes('Smoke test reply')),
+        'follow-up reply after abort'
+      );
       await waitFor(
         () => doc.querySelector('#stop-btn')?.classList.contains('hidden'),
-        'stop button hidden after abort'
+        'stop button hidden after follow-up completes'
+      );
+
+      click(doc.querySelector('#new-chat-btn'));
+      await waitFor(
+        () => doc.querySelectorAll('.conversation-item').length >= 2,
+        'conversation list updated'
+      );
+      const previousConversation = Array.from(doc.querySelectorAll('.conversation-item'))
+        .find((item) => item.textContent.includes('slow response please'));
+      if (!previousConversation) {
+        fail('previous conversation should remain in the sidebar after rerender');
+      }
+      click(previousConversation);
+      await waitFor(
+        () => Array.from(doc.querySelectorAll('.message--ai .message__content')).some((node) => node.textContent.includes('Partial')),
+        'partial response persisted after rerender'
       );
 
       const aiMessages = Array.from(doc.querySelectorAll('.message--ai .message__content'))
@@ -158,6 +186,12 @@
         .filter(Boolean);
       if (!aiMessages.some((text) => text.includes('Partial'))) {
         fail('partial response should persist after manual stop');
+      }
+      if (!aiMessages.some((text) => text.includes('Smoke test reply'))) {
+        fail('follow-up response should complete after aborting the previous stream');
+      }
+      if (doc.querySelector('.loading-indicator')) {
+        fail('loading indicator should be cleaned up after abort and follow-up send');
       }
 
       document.body.dataset.smokeResult = 'pass';

@@ -401,6 +401,16 @@
   color: var(--color-text-tertiary);
 }
 
+.settings-group__warning {
+  font-size: var(--font-size-xs);
+  color: #f59e0b;
+  background: rgba(245, 158, 11, 0.1);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  border-left: 3px solid #f59e0b;
+  margin-top: var(--space-2);
+}
+
 .settings-group textarea {
   width: 100%;
   min-height: 100px;

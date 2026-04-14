@@ -7,6 +7,12 @@ import { loadTheme, saveTheme } from './storage.js';
 /** @type {string} */
 let currentTheme = 'light';
 
+/** @type {MediaQueryList|null} */
+let mediaQuery = null;
+
+/** @type {function|null} */
+let mediaQueryHandler = null;
+
 /**
  * Initialise the theme from localStorage or system preference.
  */
@@ -21,12 +27,25 @@ export function initTheme() {
   applyTheme(currentTheme, false);
 
   // Listen for system preference changes
-  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+  mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+  mediaQueryHandler = (e) => {
     if (!loadTheme()) {
       currentTheme = e.matches ? 'dark' : 'light';
       applyTheme(currentTheme, true);
     }
-  });
+  };
+  mediaQuery.addEventListener('change', mediaQueryHandler);
+}
+
+/**
+ * Cleanup theme event listeners.
+ */
+export function cleanupTheme() {
+  if (mediaQuery && mediaQueryHandler) {
+    mediaQuery.removeEventListener('change', mediaQueryHandler);
+    mediaQuery = null;
+    mediaQueryHandler = null;
+  }
 }
 
 /**

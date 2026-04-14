@@ -443,6 +443,7 @@ export function replaceStreamingMessage(streamingEl, msg) {
 // ============================================
 
 let userHasScrolledUp = false;
+let scrollController = null;
 
 /**
  * Set up scroll tracking on the chat messages container.
@@ -451,10 +452,11 @@ export function initScrollTracking() {
   const container = $('#chat-messages');
   if (!container) return;
 
+  scrollController = new AbortController();
   container.addEventListener('scroll', () => {
     const { scrollTop, scrollHeight, clientHeight } = container;
     userHasScrolledUp = scrollHeight - scrollTop - clientHeight > 100;
-  }, { passive: true });
+  }, { passive: true, signal: scrollController.signal });
 }
 
 /**
@@ -705,10 +707,13 @@ export function updateSystemPromptIndicator() {
 // Code Block Copy Delegation
 // ============================================
 
+let copyController = null;
+
 /**
  * Initialise code block copy button event delegation.
  */
 export function initCodeBlockCopy() {
+  copyController = new AbortController();
   document.addEventListener('click', async (e) => {
     const copyBtn = e.target.closest('.code-block__copy');
     if (!copyBtn) return;
@@ -733,12 +738,14 @@ export function initCodeBlockCopy() {
         if (span) span.textContent = originalText;
       }, 2000);
     }
-  });
+  }, { signal: copyController.signal });
 }
 
 // ============================================
 // Network Status Banner
 // ============================================
+
+let networkController = null;
 
 /**
  * Initialise network status monitoring.
@@ -751,7 +758,26 @@ export function initNetworkStatus() {
     banner.classList.toggle('visible', !navigator.onLine);
   };
 
-  window.addEventListener('online', update);
-  window.addEventListener('offline', update);
+  networkController = new AbortController();
+  window.addEventListener('online', update, { signal: networkController.signal });
+  window.addEventListener('offline', update, { signal: networkController.signal });
   update();
+}
+
+/**
+ * Cleanup UI event listeners.
+ */
+export function cleanupUI() {
+  if (scrollController) {
+    scrollController.abort();
+    scrollController = null;
+  }
+  if (copyController) {
+    copyController.abort();
+    copyController = null;
+  }
+  if (networkController) {
+    networkController.abort();
+    networkController = null;
+  }
 }

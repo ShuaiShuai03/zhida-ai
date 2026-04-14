@@ -5,6 +5,10 @@
 import { API_ENDPOINT, REQUEST_TIMEOUT } from './config.js';
 import { state } from './state.js';
 
+// Stream safety limits
+const MAX_STREAM_ITERATIONS = 10000;
+const MAX_STREAM_DATA_SIZE = 50 * 1024 * 1024; // 50MB
+
 /**
  * @typedef {Object} StreamCallbacks
  * @property {function(string): void} onToken - Called for each content token
@@ -76,53 +80,70 @@ export async function streamChatCompletion(messages, callbacks) {
 
     const decoder = new TextDecoder();
     let buffer = '';
+    let iterations = 0;
+    let totalBytes = 0;
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-
-      // Process SSE lines
-      const lines = buffer.split('\n');
-      buffer = lines.pop() ?? '';
-
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed || trimmed.startsWith(':')) continue;
-
-        if (trimmed === 'data: [DONE]') {
-          callbacks.onDone();
-          state.abortController = null;
-          return;
+    try {
+      while (true) {
+        // Safety check: prevent infinite loops
+        if (++iterations > MAX_STREAM_ITERATIONS) {
+          throw new ChatError('响应数据过多，已中止', 'overflow');
         }
 
-        if (trimmed.startsWith('data: ')) {
-          const jsonStr = trimmed.slice(6);
-          try {
-            const parsed = JSON.parse(jsonStr);
-            const delta = parsed.choices?.[0]?.delta;
-            if (!delta) continue;
+        const { done, value } = await reader.read();
+        if (done) break;
 
-            // Handle reasoning_content (OpenAI-compatible thinking)
-            if (delta.reasoning_content && model.type === 'thinking') {
-              callbacks.onThinking?.(delta.reasoning_content);
-            }
+        // Safety check: prevent excessive data
+        totalBytes += value.length;
+        if (totalBytes > MAX_STREAM_DATA_SIZE) {
+          throw new ChatError('响应数据超出限制', 'overflow');
+        }
 
-            // Handle regular content
-            if (delta.content) {
-              callbacks.onToken(delta.content);
+        buffer += decoder.decode(value, { stream: true });
+
+        // Process SSE lines
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || trimmed.startsWith(':')) continue;
+
+          if (trimmed === 'data: [DONE]') {
+            callbacks.onDone();
+            state.abortController = null;
+            return;
+          }
+
+          if (trimmed.startsWith('data: ')) {
+            const jsonStr = trimmed.slice(6);
+            try {
+              const parsed = JSON.parse(jsonStr);
+              const delta = parsed.choices?.[0]?.delta;
+              if (!delta) continue;
+
+              // Handle reasoning_content (OpenAI-compatible thinking)
+              if (delta.reasoning_content && model.type === 'thinking') {
+                callbacks.onThinking?.(delta.reasoning_content);
+              }
+
+              // Handle regular content
+              if (delta.content) {
+                callbacks.onToken(delta.content);
+              }
+            } catch {
+              // Skip malformed JSON lines
             }
-          } catch {
-            // Skip malformed JSON lines
           }
         }
       }
-    }
 
-    // Stream ended without [DONE]
-    callbacks.onDone();
-    state.abortController = null;
+      // Stream ended without [DONE]
+      callbacks.onDone();
+      state.abortController = null;
+    } finally {
+      reader.releaseLock();
+    }
   } catch (err) {
     clearTimeout(timeoutId);
     state.abortController = null;

@@ -3,7 +3,7 @@
  */
 
 import { state } from './state.js';
-import { initTheme, toggleTheme } from './theme.js';
+import { initTheme, toggleTheme, cleanupTheme } from './theme.js';
 import { initMarkdown } from './markdown.js';
 import { FILE_INPUT_ACCEPT, SUPPORTED_TEXT_FILE_EXTENSIONS } from './config.js';
 import {
@@ -40,6 +40,7 @@ import {
   initCodeBlockCopy,
   initNetworkStatus,
   updateSystemPromptIndicator,
+  cleanupUI,
 } from './ui.js';
 import {
   createNewConversation,
@@ -55,6 +56,30 @@ import { debounce, isMac, escapeHTML } from './utils.js';
 
 // ---- DOM References ----
 const $ = (sel) => document.querySelector(sel);
+
+// ---- Event Cleanup Manager ----
+/** @type {AbortController|null} */
+let eventController = null;
+
+/**
+ * Initialize event controller for cleanup.
+ */
+function initEventController() {
+  eventController = new AbortController();
+  return eventController.signal;
+}
+
+/**
+ * Cleanup all event listeners.
+ */
+function cleanup() {
+  if (eventController) {
+    eventController.abort();
+    eventController = null;
+  }
+  cleanupTheme();
+  cleanupUI();
+}
 
 // ---- Pending Attachments ----
 /** @type {Array<{type: string, name: string, content?: string, dataUrl?: string}>} */
@@ -130,6 +155,9 @@ async function refreshModels(options = {}) {
  * Boot the application.
  */
 function init() {
+  // Initialize event controller for cleanup
+  initEventController();
+
   // Initialize subsystems
   initTheme();
   initMarkdown();
@@ -199,6 +227,7 @@ function doSend() {
 }
 
 function bindInputEvents() {
+  const signal = eventController?.signal;
   const textarea = $('#chat-input');
   const sendBtn = $('#send-btn');
   const stopBtn = $('#stop-btn');
@@ -210,7 +239,7 @@ function bindInputEvents() {
     textarea.addEventListener('input', () => {
       autoResizeTextarea(textarea);
       updateSendButton(canSend());
-    });
+    }, { signal });
 
     // Enter to send, Shift+Enter for newline
     textarea.addEventListener('keydown', (e) => {
@@ -218,27 +247,27 @@ function bindInputEvents() {
         e.preventDefault();
         doSend();
       }
-    });
+    }, { signal });
   }
 
   if (sendBtn) {
-    sendBtn.addEventListener('click', doSend);
+    sendBtn.addEventListener('click', doSend, { signal });
   }
 
   if (stopBtn) {
     stopBtn.addEventListener('click', () => {
       state.abortStream();
-    });
+    }, { signal });
   }
 
   // File upload
   if (uploadBtn && fileInput) {
     fileInput.accept = FILE_INPUT_ACCEPT;
-    uploadBtn.addEventListener('click', () => fileInput.click());
+    uploadBtn.addEventListener('click', () => fileInput.click(), { signal });
     fileInput.addEventListener('change', () => {
       handleFileSelection(fileInput.files);
       fileInput.value = '';
-    });
+    }, { signal });
   }
 
   // Drag & drop files onto input area
@@ -247,17 +276,17 @@ function bindInputEvents() {
     inputArea.addEventListener('dragover', (e) => {
       e.preventDefault();
       inputArea.classList.add('drag-over');
-    });
+    }, { signal });
     inputArea.addEventListener('dragleave', () => {
       inputArea.classList.remove('drag-over');
-    });
+    }, { signal });
     inputArea.addEventListener('drop', (e) => {
       e.preventDefault();
       inputArea.classList.remove('drag-over');
       if (e.dataTransfer?.files.length) {
         handleFileSelection(e.dataTransfer.files);
       }
-    });
+    }, { signal });
   }
 }
 
@@ -266,6 +295,7 @@ function bindInputEvents() {
 // ============================================
 
 function bindSidebarEvents() {
+  const signal = eventController?.signal;
   const newChatBtn = $('#new-chat-btn');
   const conversationList = $('#conversation-list');
   const searchInput = $('#sidebar-search');
@@ -278,7 +308,7 @@ function bindSidebarEvents() {
     newChatBtn.addEventListener('click', () => {
       createNewConversation();
       closeSidebar();
-    });
+    }, { signal });
   }
 
   if (conversationList) {
@@ -302,7 +332,7 @@ function bindSidebarEvents() {
         switchConversation(id);
         closeSidebar();
       }
-    });
+    }, { signal });
 
     // Double-click to rename conversation title
     conversationList.addEventListener('dblclick', (e) => {
@@ -357,7 +387,7 @@ function bindSidebarEvents() {
       });
 
       input.addEventListener('blur', commit, { once: true });
-    });
+    }, { signal });
 
     // Keyboard navigation for conversation items
     conversationList.addEventListener('keydown', (e) => {
@@ -368,7 +398,7 @@ function bindSidebarEvents() {
           item.click();
         }
       }
-    });
+    }, { signal });
   }
 
   if (searchInput) {
@@ -378,7 +408,7 @@ function bindSidebarEvents() {
 
     searchInput.addEventListener('input', (e) => {
       debouncedSearch(e.target.value);
-    });
+    }, { signal });
   }
 
   if (clearAllBtn) {
@@ -391,23 +421,23 @@ function bindSidebarEvents() {
         renderConversationList();
         showToast('所有对话已清空', 'success');
       }
-    });
+    }, { signal });
   }
 
   if (exportBtn) {
     exportBtn.addEventListener('click', () => {
       exportConversation();
-    });
+    }, { signal });
   }
 
   if (sidebarOverlay) {
-    sidebarOverlay.addEventListener('click', closeSidebar);
+    sidebarOverlay.addEventListener('click', closeSidebar, { signal });
   }
 
   if (shortcutsBtn) {
     shortcutsBtn.addEventListener('click', () => {
       openModal('shortcuts-modal');
-    });
+    }, { signal });
   }
 }
 
@@ -416,6 +446,7 @@ function bindSidebarEvents() {
 // ============================================
 
 function bindHeaderEvents() {
+  const signal = eventController?.signal;
   const sidebarToggle = $('#sidebar-toggle');
   const themeToggle = $('#theme-toggle');
   const settingsBtn = $('#settings-btn');
@@ -424,11 +455,11 @@ function bindHeaderEvents() {
   const modelList = $('#model-list');
 
   if (sidebarToggle) {
-    sidebarToggle.addEventListener('click', toggleSidebar);
+    sidebarToggle.addEventListener('click', toggleSidebar, { signal });
   }
 
   if (themeToggle) {
-    themeToggle.addEventListener('click', toggleTheme);
+    themeToggle.addEventListener('click', toggleTheme, { signal });
   }
 
   if (settingsBtn) {
@@ -449,7 +480,7 @@ function bindHeaderEvents() {
       if (maxTokensInput) maxTokensInput.value = state.maxTokens;
 
       openModal('settings-modal');
-    });
+    }, { signal });
   }
 
   // Model selector dropdown
@@ -457,14 +488,14 @@ function bindHeaderEvents() {
     modelTrigger.addEventListener('click', (e) => {
       e.stopPropagation();
       setModelSelectorOpen(modelSelector, !modelSelector.classList.contains('open'));
-    });
+    }, { signal });
 
     // Close on outside click
     document.addEventListener('click', (e) => {
       if (!modelSelector.contains(e.target)) {
         setModelSelectorOpen(modelSelector, false);
       }
-    });
+    }, { signal });
   }
 
   if (modelList) {
@@ -488,7 +519,7 @@ function bindHeaderEvents() {
       renderConversationList();
 
       setModelSelectorOpen(modelSelector, false);
-    });
+    }, { signal });
   }
 
   // System prompt indicator click
@@ -496,7 +527,7 @@ function bindHeaderEvents() {
   if (sysPromptIndicator) {
     sysPromptIndicator.addEventListener('click', () => {
       settingsBtn?.click();
-    });
+    }, { signal });
   }
 }
 
@@ -505,16 +536,17 @@ function bindHeaderEvents() {
 // ============================================
 
 function bindModalEvents() {
+  const signal = eventController?.signal;
   // Close modal on overlay click
   document.querySelectorAll('.modal-overlay').forEach((overlay) => {
     overlay.addEventListener('click', (e) => {
       if (e.target === overlay) closeModal();
-    });
+    }, { signal });
   });
 
   // Close buttons
   document.querySelectorAll('.modal__close').forEach((btn) => {
-    btn.addEventListener('click', closeModal);
+    btn.addEventListener('click', closeModal, { signal });
   });
 
   // Settings modal — save
@@ -525,7 +557,7 @@ function bindModalEvents() {
     toggleKeyBtn.addEventListener('click', () => {
       const isPassword = apiKeyField.type === 'password';
       apiKeyField.type = isPassword ? 'text' : 'password';
-    });
+    }, { signal });
   }
 
   const settingsSaveBtn = $('#settings-save-btn');
@@ -559,7 +591,7 @@ function bindModalEvents() {
       if (state.isApiConfigured) {
         refreshModels();
       }
-    });
+    }, { signal });
   }
 
   // Fetch models button
@@ -589,7 +621,7 @@ function bindModalEvents() {
 
       fetchModelsBtn.disabled = false;
       fetchModelsBtn.textContent = '获取模型列表';
-    });
+    }, { signal });
   }
 
   // Temperature slider live update
@@ -598,7 +630,7 @@ function bindModalEvents() {
   if (tempSlider && tempValue) {
     tempSlider.addEventListener('input', () => {
       tempValue.textContent = parseFloat(tempSlider.value).toFixed(1);
-    });
+    }, { signal });
   }
 
   // Chat messages area — action buttons & thinking toggles
@@ -621,7 +653,7 @@ function bindModalEvents() {
           sendMessage(prompt);
         }
       }
-    });
+    }, { signal });
   }
 }
 
@@ -630,6 +662,7 @@ function bindModalEvents() {
 // ============================================
 
 function bindKeyboardShortcuts() {
+  const signal = eventController?.signal;
   const modKey = isMac() ? 'metaKey' : 'ctrlKey';
 
   document.addEventListener('keydown', (e) => {
@@ -666,7 +699,7 @@ function bindKeyboardShortcuts() {
       }
       return;
     }
-  });
+  }, { signal });
 }
 
 // ============================================
@@ -674,6 +707,7 @@ function bindKeyboardShortcuts() {
 // ============================================
 
 function bindPasteHandler() {
+  const signal = eventController?.signal;
   const textarea = $('#chat-input');
   if (!textarea) return;
 
@@ -689,7 +723,7 @@ function bindPasteHandler() {
         return;
       }
     }
-  });
+  }, { signal });
 }
 
 // ============================================
@@ -697,9 +731,10 @@ function bindPasteHandler() {
 // ============================================
 
 function bindStorageWarning() {
+  const signal = eventController?.signal;
   window.addEventListener('storage-full', () => {
     showToast('本地存储空间已满，请清理旧对话', 'error');
-  });
+  }, { signal });
 }
 
 // ============================================
@@ -812,3 +847,6 @@ if (document.readyState === 'loading') {
 } else {
   init();
 }
+
+// Cleanup on page unload
+window.addEventListener('beforeunload', cleanup);

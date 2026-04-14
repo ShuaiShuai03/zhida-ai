@@ -6,6 +6,9 @@
   <meta name="description" content="智答 AI — 你的智能 AI 助手，支持多模型切换、深度思考、实时流式对话。" />
   <meta name="theme-color" content="#4F46E5" />
 
+  <!-- Content Security Policy -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; img-src 'self' data: https:; font-src 'self' data: https://cdn.jsdelivr.net; connect-src 'self' https:;">
+
   <!-- Open Graph -->
   <meta property="og:title" content="智答 AI" />
   <meta property="og:description" content="你的智能 AI 助手" />
@@ -190,6 +193,7 @@
           <div class="settings-group">
             <label class="settings-group__label" for="settings-api-key">API 密钥</label>
             <p id="settings-api-key-desc" class="settings-group__desc">用于身份验证的密钥。它会保存在浏览器本地，并随请求发送到你配置的 API 服务。</p>
+            <p class="settings-group__warning">请勿在公共或共享设备上保存密钥。建议使用低权限或有额度限制的密钥。</p>
             <div class="api-key-wrapper">
               <input type="password" id="settings-api-key" placeholder="sk-..." autocomplete="off" aria-describedby="settings-api-key-desc" />
               <button type="button" id="toggle-api-key-visibility" class="api-key-toggle" aria-label="显示/隐藏密钥">

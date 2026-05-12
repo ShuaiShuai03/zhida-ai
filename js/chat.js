@@ -11,7 +11,12 @@ import {
   resolveConversationModel,
 } from './conversation-utils.js';
 import { streamChatCompletion } from './api.js';
-import { saveConversation, saveConversations, saveActiveConversationId } from './storage.js';
+import {
+  saveConversation,
+  saveConversations,
+  saveActiveConversationId,
+  saveSelectedModel,
+} from './storage.js';
 import {
   renderMessages,
   appendUserMessage,
@@ -22,6 +27,8 @@ import {
   scrollToBottom,
   showToast,
   renderConversationList,
+  renderModelDropdown,
+  updateModelTrigger,
   updateSystemPromptIndicator,
 } from './ui.js';
 
@@ -42,9 +49,12 @@ export function createNewConversation() {
     updatedAt: Date.now(),
   };
 
-  state.addConversation(conv);
+  if (!saveConversation(conv)) {
+    showToast('新对话保存失败，请清理本地存储后重试', 'error');
+    return;
+  }
+
   state.activeConversationId = conv.id;
-  saveConversation(conv);
   saveActiveConversationId();
   renderMessages();
   renderConversationList();
@@ -71,8 +81,13 @@ export function switchConversation(conversationId) {
   const conv = state.activeConversation;
   if (conv) {
     state.systemPrompt = conv.systemPrompt ?? DEFAULT_SYSTEM_PROMPT;
+    const model = resolveConversationModel(state.models, conv.modelId, state.selectedModel);
+    state.selectedModelId = model.id;
+    saveSelectedModel();
   }
 
+  renderModelDropdown();
+  updateModelTrigger();
   renderMessages();
   renderConversationList();
   updateSystemPromptIndicator();
@@ -83,9 +98,24 @@ export function switchConversation(conversationId) {
  * @param {string} conversationId
  */
 export function deleteConversation(conversationId) {
-  state.removeConversation(conversationId);
-  saveConversations();
-  saveActiveConversationId();
+  const wasActive = state.activeConversationId === conversationId;
+
+  if (wasActive && state.isStreaming) {
+    state.abortStream();
+    state.currentRequestId = null;
+  }
+
+  const nextConversations = state.conversations.filter((c) => c.id !== conversationId);
+  if (!saveConversations(nextConversations)) {
+    showToast('删除失败：本地存储写入失败', 'error');
+    return;
+  }
+
+  if (wasActive) {
+    state.activeConversationId = null;
+    saveActiveConversationId();
+  }
+
   renderMessages();
   renderConversationList();
   showToast('对话已删除', 'success');
@@ -103,9 +133,15 @@ export function renameConversation(conversationId, newTitle) {
   const trimmed = newTitle.trim();
   if (!trimmed || trimmed === conv.title) return;
 
-  conv.title = deriveConversationTitle(trimmed, [], { maxLength: TITLE_MAX_LENGTH });
-  conv.updatedAt = Date.now();
-  saveConversation(conv);
+  const nextConv = {
+    ...conv,
+    title: deriveConversationTitle(trimmed, [], { maxLength: TITLE_MAX_LENGTH }),
+    updatedAt: Date.now(),
+  };
+  if (!saveConversation(nextConv)) {
+    showToast('重命名失败：本地存储写入失败', 'error');
+    return;
+  }
   renderConversationList();
   showToast('对话已重命名', 'success');
 }
@@ -132,9 +168,6 @@ export async function sendMessage(text, attachments = []) {
   const requestId = generateId();
   state.currentRequestId = requestId;
 
-  // Update model if changed
-  conv.modelId = state.selectedModelId;
-
   // Build display content: user text + text file contents + image markers
   let displayContent = trimmed;
   const imageDataUrls = [];
@@ -157,19 +190,29 @@ export async function sendMessage(text, attachments = []) {
     timestamp: Date.now(),
   };
 
-  conv.messages.push(userMsg);
+  const nextMessages = [...conv.messages, userMsg];
 
   // Auto-title from first message
-  if (conv.messages.filter((m) => m.role === 'user').length === 1) {
-    conv.title = deriveConversationTitle(trimmed, attachments, { maxLength: TITLE_MAX_LENGTH });
-  }
+  const nextTitle = nextMessages.filter((m) => m.role === 'user').length === 1
+    ? deriveConversationTitle(trimmed, attachments, { maxLength: TITLE_MAX_LENGTH })
+    : conv.title;
 
-  conv.updatedAt = Date.now();
-  saveConversation(conv);
+  const requestConv = {
+    ...conv,
+    modelId: state.selectedModelId,
+    title: nextTitle,
+    messages: nextMessages,
+    updatedAt: Date.now(),
+  };
+
+  if (!saveConversation(requestConv)) {
+    clearCurrentStreamRequest(requestId);
+    showToast('消息保存失败，请清理本地存储后重试', 'error');
+    return;
+  }
 
   // Display user message
   appendUserMessage(userMsg);
-  renderConversationList();
   renderConversationList();
 
   // Clear input
@@ -185,7 +228,7 @@ export async function sendMessage(text, attachments = []) {
   showStopButton(true);
 
   // Build messages array for API
-  const apiMessages = buildAPIMessages(conv);
+  const apiMessages = buildAPIMessages(requestConv);
 
   // Create streaming UI
   const streaming = createStreamingMessage();
@@ -210,38 +253,41 @@ export async function sendMessage(text, attachments = []) {
 
     onDone() {
       finalizeStreamingResult({
-        conv,
+        conv: requestConv,
         streaming,
         contentBuffer,
         reasoningBuffer,
         textarea,
         wasStopped: false,
-        syncUi: isCurrentStreamRequest(requestId),
+        syncUi: isCurrentStreamRequest(requestId) && state.activeConversationId === requestConv.id,
         requestId,
+        afterMessageId: userMsg.id,
       });
     },
 
     onAbort() {
       finalizeStreamingResult({
-        conv,
+        conv: requestConv,
         streaming,
         contentBuffer,
         reasoningBuffer,
         textarea,
         wasStopped: true,
-        syncUi: isCurrentStreamRequest(requestId),
+        syncUi: isCurrentStreamRequest(requestId) && state.activeConversationId === requestConv.id,
         requestId,
+        afterMessageId: userMsg.id,
       });
     },
 
     onError(err) {
       commitStreamingError({
-        conv,
+        conv: requestConv,
         streaming,
         err,
         textarea,
-        syncUi: isCurrentStreamRequest(requestId),
+        syncUi: isCurrentStreamRequest(requestId) && state.activeConversationId === requestConv.id,
         requestId,
+        afterMessageId: userMsg.id,
       });
     },
   });
@@ -255,21 +301,30 @@ export async function regenerateLastResponse() {
   if (!conv || state.isStreaming) return;
 
   // Remove the last AI/error message
-  while (conv.messages.length > 0) {
-    const last = conv.messages[conv.messages.length - 1];
+  const nextMessages = [...conv.messages];
+  while (nextMessages.length > 0) {
+    const last = nextMessages[nextMessages.length - 1];
     if (last.role === 'ai' || last.role === 'error') {
-      conv.messages.pop();
+      nextMessages.pop();
     } else {
       break;
     }
   }
 
   // Find the last user message
-  const lastUserMsg = [...conv.messages].reverse().find((m) => m.role === 'user');
+  const lastUserMsg = [...nextMessages].reverse().find((m) => m.role === 'user');
   if (!lastUserMsg) return;
 
-  conv.updatedAt = Date.now();
-  saveConversation(conv);
+  const requestConv = {
+    ...conv,
+    messages: nextMessages,
+    updatedAt: Date.now(),
+  };
+
+  if (!saveConversation(requestConv)) {
+    showToast('重新生成失败：本地存储写入失败', 'error');
+    return;
+  }
   renderMessages();
 
   // Re-send with current context
@@ -279,7 +334,7 @@ export async function regenerateLastResponse() {
   showStopButton(true);
   updateSendButton(false);
 
-  const apiMessages = buildAPIMessages(conv);
+  const apiMessages = buildAPIMessages(requestConv);
   const streaming = createStreamingMessage();
   let contentBuffer = '';
   let reasoningBuffer = '';
@@ -301,38 +356,41 @@ export async function regenerateLastResponse() {
 
     onDone() {
       finalizeStreamingResult({
-        conv,
+        conv: requestConv,
         streaming,
         contentBuffer,
         reasoningBuffer,
         textarea,
         wasStopped: false,
-        syncUi: isCurrentStreamRequest(requestId),
+        syncUi: isCurrentStreamRequest(requestId) && state.activeConversationId === requestConv.id,
         requestId,
+        afterMessageId: lastUserMsg.id,
       });
     },
 
     onAbort() {
       finalizeStreamingResult({
-        conv,
+        conv: requestConv,
         streaming,
         contentBuffer,
         reasoningBuffer,
         textarea,
         wasStopped: true,
-        syncUi: isCurrentStreamRequest(requestId),
+        syncUi: isCurrentStreamRequest(requestId) && state.activeConversationId === requestConv.id,
         requestId,
+        afterMessageId: lastUserMsg.id,
       });
     },
 
     onError(err) {
       commitStreamingError({
-        conv,
+        conv: requestConv,
         streaming,
         err,
         textarea,
-        syncUi: isCurrentStreamRequest(requestId),
+        syncUi: isCurrentStreamRequest(requestId) && state.activeConversationId === requestConv.id,
         requestId,
+        afterMessageId: lastUserMsg.id,
       });
     },
   });
@@ -403,6 +461,25 @@ function clearCurrentStreamRequest(requestId) {
   }
 }
 
+function appendMessageAfterAnchor(conversationId, message, afterMessageId) {
+  const currentConv = state.conversations.find((c) => c.id === conversationId);
+  if (!currentConv) return false;
+
+  const messages = [...currentConv.messages];
+  const anchorIndex = afterMessageId
+    ? messages.findIndex((m) => m.id === afterMessageId)
+    : messages.length - 1;
+
+  if (anchorIndex < 0) return false;
+
+  messages.splice(anchorIndex + 1, 0, message);
+  return saveConversation({
+    ...currentConv,
+    messages,
+    updatedAt: Date.now(),
+  });
+}
+
 /**
  * Finalize a streaming response into a persisted AI message when appropriate.
  */
@@ -416,6 +493,7 @@ function finalizeStreamingResult(options) {
     wasStopped,
     syncUi = true,
     requestId = null,
+    afterMessageId = null,
   } = options;
 
   // Stale callbacks still need to clean up their own UI/message, but they must
@@ -424,8 +502,8 @@ function finalizeStreamingResult(options) {
     state.isStreaming = false;
     showStopButton(false);
     updateSendButton(true);
-    clearCurrentStreamRequest(requestId);
   }
+  clearCurrentStreamRequest(requestId);
   streaming.finalize();
 
   const finalMessage = buildAssistantMessageFromBuffers({
@@ -450,9 +528,17 @@ function finalizeStreamingResult(options) {
     timestamp: Date.now(),
   };
 
-  conv.messages.push(aiMsg);
-  conv.updatedAt = Date.now();
-  saveConversation(conv);
+  const saved = appendMessageAfterAnchor(conv.id, aiMsg, afterMessageId);
+  if (!saved) {
+    if (streaming.element.isConnected) {
+      streaming.element.remove();
+    }
+    if (syncUi) {
+      showToast('回复保存失败，请清理本地存储后重试', 'error');
+      textarea?.focus();
+    }
+    return;
+  }
 
   if (streaming.element.isConnected) {
     replaceStreamingMessage(streaming.element, aiMsg);
@@ -473,14 +559,15 @@ function commitStreamingError(options) {
     textarea,
     syncUi = true,
     requestId = null,
+    afterMessageId = null,
   } = options;
 
   if (syncUi) {
     state.isStreaming = false;
     showStopButton(false);
     updateSendButton(true);
-    clearCurrentStreamRequest(requestId);
   }
+  clearCurrentStreamRequest(requestId);
 
   const errorMsg = {
     id: generateId(),
@@ -489,9 +576,17 @@ function commitStreamingError(options) {
     timestamp: Date.now(),
   };
 
-  conv.messages.push(errorMsg);
-  conv.updatedAt = Date.now();
-  saveConversation(conv);
+  const saved = appendMessageAfterAnchor(conv.id, errorMsg, afterMessageId);
+  if (!saved) {
+    if (streaming.element.isConnected) {
+      streaming.element.remove();
+    }
+    if (syncUi) {
+      showToast('错误消息保存失败，请清理本地存储后重试', 'error');
+      textarea?.focus();
+    }
+    return;
+  }
 
   if (streaming.element.isConnected) {
     replaceStreamingMessage(streaming.element, errorMsg);

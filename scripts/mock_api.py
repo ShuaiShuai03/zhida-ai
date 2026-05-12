@@ -94,6 +94,12 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
         try:
+            if "echo model" in prompt:
+                self.write_sse({"choices": [{"delta": {"content": f"model: {payload.get('model', '')}"}}]})
+                self.wfile.write(b"data: [DONE]\n\n")
+                self.wfile.flush()
+                return
+
             if "slow" in prompt:
                 self.write_sse({"choices": [{"delta": {"content": "Partial "}}]})
                 time.sleep(1.5)

@@ -83,29 +83,36 @@ export function loadConversations() {
 
 /**
  * Save all conversations to localStorage (with pruning).
+ * @param {Array} [conversations=state.conversations] - Desired conversation list.
+ * @returns {boolean} Success flag.
  */
-export function saveConversations() {
-  let convs = sortConversationsByUpdatedAt(state.conversations);
+export function saveConversations(conversations = state.conversations) {
+  let convs = sortConversationsByUpdatedAt(conversations);
   // Prune oldest conversations if over limit
   if (convs.length > MAX_CONVERSATIONS) {
     convs = convs.slice(0, MAX_CONVERSATIONS);
   }
+  if (!setItem(STORAGE_KEYS.CONVERSATIONS, convs)) {
+    return false;
+  }
   state.conversations = convs;
-  setItem(STORAGE_KEYS.CONVERSATIONS, convs);
+  return true;
 }
 
 /**
  * Save a single conversation (update in place or insert).
  * @param {Object} conversation
+ * @returns {boolean} Success flag.
  */
 export function saveConversation(conversation) {
-  const idx = state.conversations.findIndex((c) => c.id === conversation.id);
+  const nextConversations = [...state.conversations];
+  const idx = nextConversations.findIndex((c) => c.id === conversation.id);
   if (idx >= 0) {
-    state.conversations[idx] = conversation;
+    nextConversations[idx] = conversation;
   } else {
-    state.conversations.unshift(conversation);
+    nextConversations.unshift(conversation);
   }
-  saveConversations();
+  return saveConversations(nextConversations);
 }
 
 // ---- Active Conversation ID ----
@@ -122,9 +129,10 @@ export function loadActiveConversationId() {
 
 /**
  * Save the active conversation ID to localStorage.
+ * @returns {boolean} Success flag.
  */
 export function saveActiveConversationId() {
-  setItem(STORAGE_KEYS.ACTIVE_CONVERSATION, state.activeConversationId);
+  return setItem(STORAGE_KEYS.ACTIVE_CONVERSATION, state.activeConversationId);
 }
 
 // ---- Selected Model ----
@@ -153,16 +161,18 @@ export function loadCachedModels() {
 
 /**
  * Save fetched model list to localStorage as cache.
+ * @returns {boolean} Success flag.
  */
 export function saveCachedModels() {
-  setItem(STORAGE_KEYS.MODELS, state.models);
+  return setItem(STORAGE_KEYS.MODELS, state.models);
 }
 
 /**
  * Save selected model to localStorage.
+ * @returns {boolean} Success flag.
  */
 export function saveSelectedModel() {
-  setItem(STORAGE_KEYS.SELECTED_MODEL, state.selectedModelId);
+  return setItem(STORAGE_KEYS.SELECTED_MODEL, state.selectedModelId);
 }
 
 // ---- Settings ----
@@ -183,9 +193,10 @@ export function loadSettings() {
 
 /**
  * Save settings to localStorage.
+ * @returns {boolean} Success flag.
  */
 export function saveSettings() {
-  setItem(STORAGE_KEYS.SETTINGS, {
+  return setItem(STORAGE_KEYS.SETTINGS, {
     temperature: state.temperature,
     maxTokens: state.maxTokens,
     systemPrompt: state.systemPrompt,
@@ -207,9 +218,10 @@ export function loadTheme() {
 /**
  * Save theme preference.
  * @param {string} theme
+ * @returns {boolean} Success flag.
  */
 export function saveTheme(theme) {
-  setItem(STORAGE_KEYS.THEME, theme);
+  return setItem(STORAGE_KEYS.THEME, theme);
 }
 
 // ---- Clear All ----

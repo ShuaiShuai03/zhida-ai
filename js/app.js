@@ -12,11 +12,10 @@ import {
   loadSelectedModel,
   loadSettings,
   loadCachedModels,
+  saveConversation,
   saveCachedModels,
   saveSelectedModel,
   saveSettings,
-  saveConversations,
-  saveActiveConversationId,
   clearAllData,
   isStorageNearFull,
 } from './storage.js';
@@ -504,15 +503,25 @@ function bindHeaderEvents() {
       if (!item) return;
 
       const modelId = item.dataset.modelId;
+      const previousModelId = state.selectedModelId;
       state.selectedModelId = modelId;
-      saveSelectedModel();
 
-      // Update active conversation model if applicable
       if (state.activeConversation) {
-        state.activeConversation.modelId = modelId;
-        saveConversations();
+        const nextConv = {
+          ...state.activeConversation,
+          modelId,
+          updatedAt: Date.now(),
+        };
+        if (!saveConversation(nextConv)) {
+          state.selectedModelId = previousModelId;
+          showToast('模型切换保存失败，请清理本地存储后重试', 'error');
+          renderModelDropdown();
+          updateModelTrigger();
+          return;
+        }
       }
 
+      saveSelectedModel();
       renderModelDropdown();
       updateModelTrigger();
       renderMessages(); // Update welcome screen model display
@@ -576,13 +585,22 @@ function bindModalEvents() {
       if (tempSlider) state.temperature = parseFloat(tempSlider.value);
       if (maxTokensInput) state.maxTokens = parseInt(maxTokensInput.value, 10) || 4096;
 
-      // Update active conversation's system prompt
       if (state.activeConversation) {
-        state.activeConversation.systemPrompt = state.systemPrompt;
-        saveConversations();
+        const nextConv = {
+          ...state.activeConversation,
+          systemPrompt: state.systemPrompt,
+          updatedAt: Date.now(),
+        };
+        if (!saveConversation(nextConv)) {
+          showToast('系统提示词保存失败，请清理本地存储后重试', 'error');
+          return;
+        }
       }
 
-      saveSettings();
+      if (!saveSettings()) {
+        showToast('设置保存失败，请清理本地存储后重试', 'error');
+        return;
+      }
       updateSystemPromptIndicator();
       closeModal();
       showToast('设置已保存', 'success');

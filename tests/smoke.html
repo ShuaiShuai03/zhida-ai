@@ -15,6 +15,8 @@
   ></iframe>
 
   <script type="module">
+    import { sanitizeHTML } from '../js/utils.js';
+
     const logNode = document.getElementById('log');
 
     function log(message) {
@@ -38,6 +40,11 @@
       element.dispatchEvent(new Event('change', { bubbles: true }));
     }
 
+    function findByText(selector, text, root = document) {
+      return Array.from(root.querySelectorAll(selector))
+        .find((node) => node.textContent.includes(text));
+    }
+
     async function waitFor(predicate, label, timeout = 8000) {
       const startedAt = Date.now();
       while (Date.now() - startedAt < timeout) {
@@ -50,6 +57,11 @@
 
     async function main() {
       localStorage.clear();
+
+      const sanitized = sanitizeHTML('<a href="\tjavascript:alert(1)">bad</a><img src="\nJaVaScRiPt:alert(1)">');
+      if (!sanitized.includes('href="#"') || sanitized.includes('src=')) {
+        fail('sanitizer should block whitespace-obfuscated javascript URLs');
+      }
 
       const frame = document.getElementById('app-frame');
       await new Promise((resolve) => frame.addEventListener('load', resolve, { once: true }));
@@ -122,10 +134,77 @@
         () => Array.from(doc.querySelectorAll('.model-selector__item')).some((item) => item.textContent.includes('Smoke Standard')),
         'mock model option render'
       );
-      click(doc.querySelector('body'));
+      const thinkingOption = findByText('.model-selector__item', 'Smoke Thinking', doc);
+      if (!thinkingOption) {
+        fail('mock thinking model option should render');
+      }
+      click(thinkingOption);
+      await waitFor(
+        () => doc.querySelector('#model-trigger')?.textContent.includes('Smoke Thinking'),
+        'thinking model selected'
+      );
+      click(doc.querySelector('#model-trigger'));
+      await waitFor(
+        () => doc.querySelector('#model-trigger')?.getAttribute('aria-expanded') === 'true',
+        'model selector expanded again'
+      );
+      click(findByText('.model-selector__item', 'Smoke Standard', doc));
       await waitFor(
         () => doc.querySelector('#model-trigger')?.getAttribute('aria-expanded') === 'false',
         'model selector collapsed'
+      );
+
+      click(doc.querySelector('#new-chat-btn'));
+      click(doc.querySelector('#model-trigger'));
+      await waitFor(
+        () => doc.querySelector('#model-trigger')?.getAttribute('aria-expanded') === 'true',
+        'model selector open for conversation model test'
+      );
+      click(findByText('.model-selector__item', 'Smoke Thinking', doc));
+      await waitFor(
+        () => doc.querySelector('#model-trigger')?.textContent.includes('Smoke Thinking'),
+        'conversation model set to thinking'
+      );
+      inputValue(doc.querySelector('#chat-input'), 'echo model first');
+      click(doc.querySelector('#send-btn'));
+      await waitFor(
+        () => Array.from(doc.querySelectorAll('.message--ai .message__content')).some((node) => node.textContent.includes('model: smoke-thinking')),
+        'thinking model used for first conversation'
+      );
+
+      click(doc.querySelector('#new-chat-btn'));
+      click(doc.querySelector('#model-trigger'));
+      await waitFor(
+        () => doc.querySelector('#model-trigger')?.getAttribute('aria-expanded') === 'true',
+        'model selector open for standard conversation'
+      );
+      click(findByText('.model-selector__item', 'Smoke Standard', doc));
+      await waitFor(
+        () => doc.querySelector('#model-trigger')?.textContent.includes('Smoke Standard'),
+        'standard model selected'
+      );
+      inputValue(doc.querySelector('#chat-input'), 'echo model standard');
+      click(doc.querySelector('#send-btn'));
+      await waitFor(
+        () => Array.from(doc.querySelectorAll('.message--ai .message__content')).some((node) => node.textContent.includes('model: smoke-standard')),
+        'standard model used for second conversation'
+      );
+
+      const thinkingConversation = findByText('.conversation-item', 'echo model first', doc);
+      if (!thinkingConversation) {
+        fail('thinking conversation should be in sidebar');
+      }
+      click(thinkingConversation);
+      await waitFor(
+        () => doc.querySelector('#model-trigger')?.textContent.includes('Smoke Thinking'),
+        'switching conversation restores its model'
+      );
+      inputValue(doc.querySelector('#chat-input'), 'echo model after switch');
+      click(doc.querySelector('#send-btn'));
+      await waitFor(
+        () => Array.from(doc.querySelectorAll('.message--ai .message__content'))
+          .filter((node) => node.textContent.includes('model: smoke-thinking')).length >= 2,
+        'restored conversation model used for follow-up'
       );
 
       click(doc.querySelector('#new-chat-btn'));
@@ -134,6 +213,23 @@
       await waitFor(
         () => Array.from(doc.querySelectorAll('.message--ai .message__content')).some((node) => node.textContent.includes('Smoke test reply')),
         'basic AI reply'
+      );
+
+      inputValue(doc.querySelector('#chat-input'), 'copy <div>&" check');
+      click(doc.querySelector('#send-btn'));
+      await waitFor(
+        () => findByText('.message--user', 'copy <div>&" check', doc),
+        'special character user message rendered'
+      );
+      const specialUserMessage = findByText('.message--user', 'copy <div>&" check', doc);
+      const userCopyButton = specialUserMessage?.querySelector('[data-action="copy"]');
+      if (userCopyButton?.dataset.content !== 'copy <div>&" check') {
+        fail('user copy data should preserve raw special characters');
+      }
+      userCopyButton.focus();
+      await waitFor(
+        () => win.getComputedStyle(specialUserMessage.querySelector('.message__actions')).opacity === '1',
+        'message actions visible on keyboard focus'
       );
 
       click(doc.querySelector('#new-chat-btn'));
@@ -176,6 +272,16 @@
         fail('previous conversation should remain in the sidebar after rerender');
       }
       click(previousConversation);
+      const activePreviousConversation = await waitFor(
+        () => findByText('.conversation-item.active', 'slow response please', doc),
+        'previous conversation active in sidebar'
+      );
+      const deleteButton = activePreviousConversation.querySelector('.conversation-item__delete');
+      deleteButton.focus();
+      await waitFor(
+        () => win.getComputedStyle(deleteButton).opacity === '1',
+        'conversation delete visible on keyboard focus'
+      );
       await waitFor(
         () => Array.from(doc.querySelectorAll('.message--ai .message__content')).some((node) => node.textContent.includes('Partial')),
         'partial response persisted after rerender'

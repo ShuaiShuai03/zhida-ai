@@ -91,6 +91,21 @@ export function sanitizeHTML(html) {
 
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, 'text/html');
+  const LINK_PROTOCOLS = new Set(['http:', 'https:', 'mailto:', 'tel:']);
+  const IMAGE_PROTOCOLS = new Set(['http:', 'https:']);
+
+  function isSafeUrl(value, allowedProtocols) {
+    const compact = value.replace(/[\u0000-\u001F\u007F\s]+/g, '').toLowerCase();
+    if (!compact) return true;
+    if (compact.startsWith('javascript:') || compact.startsWith('data:') || compact.startsWith('vbscript:')) {
+      return false;
+    }
+    try {
+      return allowedProtocols.has(new URL(value, document.baseURI).protocol);
+    } catch {
+      return false;
+    }
+  }
 
   /**
    * Recursively clean a node tree.
@@ -119,7 +134,7 @@ export function sanitizeHTML(html) {
           // Sanitize href to prevent javascript: protocol
           if (tag === 'a') {
             const href = child.getAttribute('href') ?? '';
-            if (href.toLowerCase().startsWith('javascript:')) {
+            if (!isSafeUrl(href, LINK_PROTOCOLS)) {
               child.setAttribute('href', '#');
             }
             child.setAttribute('target', '_blank');
@@ -128,7 +143,7 @@ export function sanitizeHTML(html) {
           // Sanitize img src
           if (tag === 'img') {
             const src = child.getAttribute('src') ?? '';
-            if (src.toLowerCase().startsWith('javascript:')) {
+            if (!isSafeUrl(src, IMAGE_PROTOCOLS)) {
               child.removeAttribute('src');
             }
           }

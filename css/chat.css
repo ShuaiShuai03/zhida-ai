@@ -204,7 +204,7 @@
   text-align: right;
 }
 
-/* ---- Message Actions (hover) ---- */
+/* ---- Message Actions ---- */
 .message__actions {
   display: flex;
   align-items: center;
@@ -214,7 +214,8 @@
   transition: opacity var(--transition-fast);
 }
 
-.message:hover .message__actions {
+.message:hover .message__actions,
+.message:focus-within .message__actions {
   opacity: 1;
 }
 
@@ -235,9 +236,20 @@
   color: var(--color-text-secondary);
 }
 
+.message__action-btn:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
 .message__action-btn svg {
   width: 13px;
   height: 13px;
+}
+
+@media (hover: none) {
+  .message__actions {
+    opacity: 1;
+  }
 }
 
 /* ============================================

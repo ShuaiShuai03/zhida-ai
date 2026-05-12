@@ -207,7 +207,8 @@
   flex-shrink: 0;
 }
 
-.conversation-item:hover .conversation-item__delete {
+.conversation-item:hover .conversation-item__delete,
+.conversation-item:focus-within .conversation-item__delete {
   opacity: 1;
 }
 
@@ -216,9 +217,21 @@
   background: var(--color-error-bubble-bg);
 }
 
+.conversation-item__delete:focus-visible {
+  opacity: 1;
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
 .conversation-item__delete svg {
   width: 14px;
   height: 14px;
+}
+
+@media (hover: none) {
+  .conversation-item__delete {
+    opacity: 1;
+  }
 }
 
 /* ---- Sidebar Footer ---- */

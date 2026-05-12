@@ -27,9 +27,53 @@ export async function streamChatCompletion(messages, callbacks) {
   const controller = new AbortController();
   state.abortController = controller;
 
-  let timeoutId = setTimeout(() => {
-    controller.abort(new Error('timeout'));
-  }, REQUEST_TIMEOUT);
+  let timeoutId = null;
+  const resetTimeout = () => {
+    if (timeoutId) clearTimeout(timeoutId);
+    timeoutId = setTimeout(() => {
+      controller.abort(new Error('timeout'));
+    }, REQUEST_TIMEOUT);
+  };
+  const clearRequestTimeout = () => {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+      timeoutId = null;
+    }
+  };
+  const clearAbortController = () => {
+    if (state.abortController === controller) {
+      state.abortController = null;
+    }
+  };
+
+  resetTimeout();
+
+  let streamFinished = false;
+  let sawSseData = false;
+  let emittedContent = false;
+
+  const processSSELine = (line) => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith(':')) return;
+
+    if (trimmed === 'data: [DONE]') {
+      streamFinished = true;
+      callbacks.onDone();
+      clearAbortController();
+      return;
+    }
+
+    if (trimmed.startsWith('data: ')) {
+      sawSseData = true;
+      const jsonStr = trimmed.slice(6);
+      try {
+        const parsed = JSON.parse(jsonStr);
+        emittedContent = emitChatPayload(parsed, callbacks, model) || emittedContent;
+      } catch {
+        // Skip malformed JSON lines
+      }
+    }
+  };
 
   const model = state.selectedModel;
 
@@ -66,11 +110,22 @@ export async function streamChatCompletion(messages, callbacks) {
       signal: controller.signal,
     });
 
-    clearTimeout(timeoutId);
+    resetTimeout();
 
     if (!response.ok) {
       const errorBody = await response.text().catch(() => '');
       throw classifyHTTPError(response.status, errorBody);
+    }
+
+    const contentType = response.headers.get('Content-Type') ?? '';
+    if (contentType.toLowerCase().includes('application/json')) {
+      const parsed = await response.json();
+      if (!emitChatPayload(parsed, callbacks, model)) {
+        throw new ChatError('响应格式异常，未收到有效内容', 'parse');
+      }
+      callbacks.onDone();
+      clearAbortController();
+      return;
     }
 
     const reader = response.body?.getReader();
@@ -80,6 +135,7 @@ export async function streamChatCompletion(messages, callbacks) {
 
     const decoder = new TextDecoder();
     let buffer = '';
+    let rawText = '';
     let iterations = 0;
     let totalBytes = 0;
 
@@ -92,6 +148,7 @@ export async function streamChatCompletion(messages, callbacks) {
 
         const { done, value } = await reader.read();
         if (done) break;
+        resetTimeout();
 
         // Safety check: prevent excessive data
         totalBytes += value.length;
@@ -99,71 +156,101 @@ export async function streamChatCompletion(messages, callbacks) {
           throw new ChatError('响应数据超出限制', 'overflow');
         }
 
-        buffer += decoder.decode(value, { stream: true });
+        const chunk = decoder.decode(value, { stream: true });
+        rawText += chunk;
+        buffer += chunk;
 
         // Process SSE lines
         const lines = buffer.split('\n');
         buffer = lines.pop() ?? '';
 
         for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed || trimmed.startsWith(':')) continue;
-
-          if (trimmed === 'data: [DONE]') {
-            callbacks.onDone();
-            state.abortController = null;
-            return;
-          }
-
-          if (trimmed.startsWith('data: ')) {
-            const jsonStr = trimmed.slice(6);
-            try {
-              const parsed = JSON.parse(jsonStr);
-              const delta = parsed.choices?.[0]?.delta;
-              if (!delta) continue;
-
-              // Handle reasoning_content (OpenAI-compatible thinking)
-              if (delta.reasoning_content && model.type === 'thinking') {
-                callbacks.onThinking?.(delta.reasoning_content);
-              }
-
-              // Handle regular content
-              if (delta.content) {
-                callbacks.onToken(delta.content);
-              }
-            } catch {
-              // Skip malformed JSON lines
-            }
-          }
+          processSSELine(line);
+          if (streamFinished) return;
         }
+      }
+
+      buffer += decoder.decode();
+      if (buffer.trim()) {
+        processSSELine(buffer);
+        if (streamFinished) return;
+      }
+
+      if (!sawSseData) {
+        try {
+          const parsed = JSON.parse(rawText);
+          if (!emitChatPayload(parsed, callbacks, model)) {
+            throw new ChatError('响应格式异常，未收到有效内容', 'parse');
+          }
+          emittedContent = true;
+        } catch (err) {
+          if (err instanceof ChatError) throw err;
+          throw new ChatError('响应格式异常，未收到有效的流式数据', 'parse');
+        }
+      } else if (!emittedContent) {
+        throw new ChatError('响应格式异常，未收到有效内容', 'parse');
       }
 
       // Stream ended without [DONE]
       callbacks.onDone();
-      state.abortController = null;
+      clearAbortController();
     } finally {
       reader.releaseLock();
     }
   } catch (err) {
-    clearTimeout(timeoutId);
-    state.abortController = null;
+    clearRequestTimeout();
+    clearAbortController();
 
     if (err instanceof ChatError) {
       callbacks.onError(err);
-    } else if (err.name === 'AbortError') {
-      // Check if abort was caused by timeout
-      if (controller.signal.reason?.message === 'timeout') {
-        callbacks.onError(new ChatError('请求超时，请重试', 'timeout'));
-      } else {
-        // User manually stopped the stream
-        callbacks.onAbort?.();
-      }
+    } else if (controller.signal.aborted && controller.signal.reason?.message === 'timeout') {
+      callbacks.onError(new ChatError('请求超时，请重试', 'timeout'));
+    } else if (err.name === 'AbortError' || controller.signal.aborted) {
+      // User manually stopped the stream
+      callbacks.onAbort?.();
     } else if (!navigator.onLine) {
       callbacks.onError(new ChatError('网络连接失败，请检查网络后重试', 'network'));
     } else {
       callbacks.onError(new ChatError('网络连接失败，请检查网络后重试', 'network'));
     }
+  } finally {
+    clearRequestTimeout();
   }
+}
+
+function normalizeContent(content) {
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => {
+        if (typeof part === 'string') return part;
+        if (part?.type === 'text' && typeof part.text === 'string') return part.text;
+        return '';
+      })
+      .join('');
+  }
+  return '';
+}
+
+function emitChatPayload(payload, callbacks, model) {
+  const choice = payload.choices?.[0];
+  const delta = choice?.delta;
+  const message = choice?.message;
+  let emitted = false;
+
+  const reasoning = normalizeContent(delta?.reasoning_content ?? message?.reasoning_content);
+  if (reasoning && model.type === 'thinking') {
+    callbacks.onThinking?.(reasoning);
+    emitted = true;
+  }
+
+  const content = normalizeContent(delta?.content ?? message?.content);
+  if (content) {
+    callbacks.onToken(content);
+    emitted = true;
+  }
+
+  return emitted;
 }
 
 // ---- Model Fetching ----

@@ -12,11 +12,14 @@ APP_LOG="$(mktemp)"
 API_LOG="$(mktemp)"
 DOM_LOG="$(mktemp)"
 USER_DATA_DIR="$(mktemp -d)"
+CONFIG_DIR="$(mktemp -d)"
+CONFIG_FILE="${CONFIG_DIR}/config.enc.json"
 
 cleanup() {
   if [[ -n "${APP_PID:-}" ]]; then kill "$APP_PID" >/dev/null 2>&1 || true; fi
   if [[ -n "${API_PID:-}" ]]; then kill "$API_PID" >/dev/null 2>&1 || true; fi
   rm -rf "$USER_DATA_DIR"
+  rm -rf "$CONFIG_DIR"
   rm -f "$APP_LOG" "$API_LOG" "$DOM_LOG"
   wait "${APP_PID:-}" "${API_PID:-}" >/dev/null 2>&1 || true
 }
@@ -24,7 +27,10 @@ cleanup() {
 trap cleanup EXIT
 
 cd "$ROOT_DIR"
-python3 -m http.server "$APP_PORT" --bind "$APP_HOST" >"$APP_LOG" 2>&1 &
+ZHIDA_PORT="$APP_PORT" \
+ZHIDA_CONFIG_SECRET="${ZHIDA_CONFIG_SECRET:-zhida-smoke-secret}" \
+ZHIDA_CONFIG_PATH="$CONFIG_FILE" \
+  node server/server.js >"$APP_LOG" 2>&1 &
 APP_PID=$!
 python3 scripts/mock_api.py "$API_PORT" >"$API_LOG" 2>&1 &
 API_PID=$!
@@ -35,6 +41,16 @@ wait_for_url() {
   local log_file="$3"
 
   for _ in {1..50}; do
+    if [[ "$label" == "app server" ]] && ! kill -0 "$APP_PID" >/dev/null 2>&1; then
+      echo "Smoke test failed: ${label} exited before becoming ready."
+      cat "$log_file"
+      exit 1
+    fi
+    if [[ "$label" == "mock API" ]] && ! kill -0 "$API_PID" >/dev/null 2>&1; then
+      echo "Smoke test failed: ${label} exited before becoming ready."
+      cat "$log_file"
+      exit 1
+    fi
     if curl -fsS "$url" >/dev/null 2>&1; then
       return 0
     fi
@@ -59,7 +75,7 @@ chrome_args=(
   --no-first-run
   --no-default-browser-check
   --user-data-dir="$USER_DATA_DIR"
-  --virtual-time-budget=25000
+  --virtual-time-budget=45000
   --dump-dom "http://${APP_HOST}:${APP_PORT}/tests/smoke.html"
 )
 

@@ -5,6 +5,7 @@
 import { state } from './state.js';
 import { DEFAULT_SYSTEM_PROMPT, WELCOME_PROMPTS } from './config.js';
 import { formatTime, formatRelativeTime, copyToClipboard, escapeHTML } from './utils.js';
+import { filterConversations, sortConversationsByUpdatedAt } from './conversation-utils.js';
 import { renderMarkdown, renderStreamingMarkdown } from './markdown.js';
 
 // ---- DOM References (cached) ----
@@ -68,15 +69,11 @@ export function renderConversationList(searchQuery = '') {
   const container = $('#conversation-list');
   if (!container) return;
 
-  let conversations = state.conversations;
+  let conversations = sortConversationsByUpdatedAt(state.conversations);
 
   // Filter by search query
   if (searchQuery.trim()) {
-    const q = searchQuery.trim().toLowerCase();
-    conversations = conversations.filter((c) =>
-      c.title.toLowerCase().includes(q) ||
-      c.messages.some((m) => m.content.toLowerCase().includes(q))
-    );
+    conversations = filterConversations(conversations, searchQuery, state.models);
   }
 
   if (conversations.length === 0) {
@@ -95,19 +92,32 @@ export function renderConversationList(searchQuery = '') {
     item.setAttribute('aria-label', `对话: ${conv.title}`);
 
     const modelDef = state.models.find((m) => m.id === conv.modelId);
-    const modelName = modelDef?.name ?? conv.modelId;
+    const modelName = modelDef?.name ?? (conv.modelId ? `${conv.modelId}（模型不可用）` : '模型不可用');
+    const tags = Array.isArray(conv.tags) ? conv.tags : [];
+    const tagHtml = tags.length
+      ? `<div class="conversation-item__tags">${tags.map((tag) => `<span>#${escapeHTML(tag)}</span>`).join('')}</div>`
+      : '';
 
     item.innerHTML = `
       <div class="conversation-item__content">
-        <div class="conversation-item__title">${escapeHTML(conv.title)}</div>
+        <div class="conversation-item__title">${conv.pinned ? '<span class="conversation-item__pin-mark" aria-label="已置顶">★</span>' : ''}${escapeHTML(conv.title)}</div>
+        ${tagHtml}
         <div class="conversation-item__meta">
           <span class="conversation-item__model-tag">${escapeHTML(modelName)}</span>
           <span>${formatRelativeTime(conv.updatedAt ?? conv.createdAt)}</span>
         </div>
       </div>
-      <button class="conversation-item__delete" data-id="${conv.id}" aria-label="删除对话" title="删除对话">
+      <div class="conversation-item__actions">
+      <button class="conversation-item__action conversation-item__pin" data-id="${conv.id}" aria-label="${conv.pinned ? '取消置顶对话' : '置顶对话'}" title="${conv.pinned ? '取消置顶' : '置顶'}" aria-pressed="${conv.pinned ? 'true' : 'false'}">
+        <svg viewBox="0 0 24 24" fill="${conv.pinned ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21 12 17.27z"/></svg>
+      </button>
+      <button class="conversation-item__action conversation-item__tags-btn" data-id="${conv.id}" aria-label="编辑对话标签" title="编辑标签">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41 12 22l-10-10V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+      </button>
+      <button class="conversation-item__action conversation-item__delete" data-id="${conv.id}" aria-label="删除对话" title="删除对话">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
       </button>
+      </div>
     `;
 
     fragment.appendChild(item);
@@ -167,6 +177,41 @@ export function updateModelTrigger() {
     <span class="badge ${model.badgeClass}">${model.badge}</span>
     <svg class="model-selector__chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
   `;
+}
+
+export function updateComposerCapabilityControls() {
+  const webSearchToggle = $('#web-search-toggle');
+  const webSearchControl = $('.tool-toggle');
+  const reasoningSelect = $('#reasoning-effort-select');
+  const reasoningControl = $('.reasoning-control');
+  const model = state.selectedModel;
+  const webSearchSupported = Boolean(model?.supportsWebSearch);
+  const reasoningSupported = Boolean(model?.supportsReasoningEffort);
+
+  if (webSearchToggle) {
+    webSearchToggle.checked = webSearchSupported && Boolean(state.webSearchEnabled);
+    webSearchToggle.disabled = !webSearchSupported;
+    webSearchToggle.setAttribute('aria-disabled', String(!webSearchSupported));
+  }
+  if (webSearchControl) {
+    webSearchControl.classList.toggle('disabled', !webSearchSupported);
+    webSearchControl.title = webSearchSupported
+      ? '使用 Responses API 的网络搜索工具'
+      : model?.capabilityReason || '当前模型不支持 Responses API，无法使用网络搜索';
+  }
+  if (reasoningSelect) {
+    reasoningSelect.value = state.reasoningEffort;
+    reasoningSelect.disabled = !reasoningSupported;
+    reasoningSelect.title = reasoningSupported
+      ? '通过 Responses API 设置推理深度'
+      : '当前模型不支持 Responses API 推理深度设置';
+  }
+  if (reasoningControl) {
+    reasoningControl.classList.toggle('disabled', !reasoningSupported);
+    reasoningControl.title = reasoningSupported
+      ? '通过 Responses API 设置推理深度'
+      : '当前模型不支持 Responses API 推理深度设置';
+  }
 }
 
 // ============================================
@@ -363,6 +408,7 @@ export function createStreamingMessage() {
           <span class="loading-indicator__dot"></span>
         </div>
       </div>
+      <div class="streaming-status hidden" aria-live="polite"></div>
     </div>
   `;
 
@@ -370,6 +416,7 @@ export function createStreamingMessage() {
   scrollToBottom();
 
   const contentEl = wrapper.querySelector('.streaming-content');
+  const statusEl = wrapper.querySelector('.streaming-status');
   const thinkingEl = wrapper.querySelector('.streaming-thinking-content');
   const thinkingBlock = wrapper.querySelector('#streaming-thinking');
   let hasContent = false;
@@ -399,8 +446,17 @@ export function createStreamingMessage() {
       autoScrollIfNeeded();
     },
 
+    updateStatus(text) {
+      if (!statusEl) return;
+      const value = String(text || '').trim();
+      statusEl.textContent = value;
+      statusEl.classList.toggle('hidden', !value);
+      autoScrollIfNeeded();
+    },
+
     finalize() {
       contentEl.classList.remove('streaming-cursor');
+      statusEl?.classList.add('hidden');
 
       // Collapse thinking block
       if (hasThinking && thinkingBlock) {

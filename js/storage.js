@@ -2,8 +2,17 @@
  * localStorage operations — conversation persistence with error handling.
  */
 
-import { STORAGE_KEYS, MAX_CONVERSATIONS, MAX_STORAGE_MB } from './config.js';
-import { sortConversationsByUpdatedAt } from './conversation-utils.js';
+import {
+  STORAGE_KEYS,
+  MAX_CONVERSATIONS,
+  MAX_STORAGE_MB,
+  DEFAULT_REASONING_EFFORT,
+  REASONING_EFFORTS,
+} from './config.js';
+import { pruneConversationsToLimit, sortConversationsByUpdatedAt } from './conversation-utils.js';
+import { createBackupPayload, mergeBackupIntoState, parseBackupPayload } from './backup-utils.js';
+import { exportLongTextAttachments, importLongTextAttachments } from './long-text.js';
+import { normalizeCustomTemplates } from './prompt-templates.js';
 import { state } from './state.js';
 import { byteSize } from './utils.js';
 
@@ -77,7 +86,11 @@ export function isStorageNearFull() {
 export function loadConversations() {
   const data = getItem(STORAGE_KEYS.CONVERSATIONS);
   if (Array.isArray(data)) {
-    state.conversations = sortConversationsByUpdatedAt(data);
+    state.conversations = sortConversationsByUpdatedAt(data.map((conversation) => ({
+      ...conversation,
+      pinned: Boolean(conversation.pinned),
+      tags: Array.isArray(conversation.tags) ? conversation.tags : [],
+    })));
   }
 }
 
@@ -178,7 +191,7 @@ export function saveSelectedModel() {
 // ---- Settings ----
 
 /**
- * Load settings (temperature, maxTokens, systemPrompt, API config) from localStorage.
+ * Load non-sensitive settings from localStorage.
  */
 export function loadSettings() {
   const data = getItem(STORAGE_KEYS.SETTINGS);
@@ -187,7 +200,10 @@ export function loadSettings() {
     if (typeof data.maxTokens === 'number') state.maxTokens = data.maxTokens;
     if (typeof data.systemPrompt === 'string') state.systemPrompt = data.systemPrompt;
     if (typeof data.apiBaseUrl === 'string') state.apiBaseUrl = data.apiBaseUrl;
-    if (typeof data.apiKey === 'string') state.apiKey = data.apiKey;
+    state.webSearchEnabled = Boolean(data.webSearchEnabled);
+    state.reasoningEffort = REASONING_EFFORTS.includes(data.reasoningEffort)
+      ? data.reasoningEffort
+      : DEFAULT_REASONING_EFFORT;
   }
 }
 
@@ -201,8 +217,106 @@ export function saveSettings() {
     maxTokens: state.maxTokens,
     systemPrompt: state.systemPrompt,
     apiBaseUrl: state.apiBaseUrl,
-    apiKey: state.apiKey,
+    webSearchEnabled: state.webSearchEnabled,
+    reasoningEffort: state.reasoningEffort,
   });
+}
+
+// ---- Prompt Templates ----
+
+export function loadCustomPromptTemplates() {
+  return normalizeCustomTemplates(getItem(STORAGE_KEYS.PROMPT_TEMPLATES));
+}
+
+export function saveCustomPromptTemplates(templates) {
+  return setItem(STORAGE_KEYS.PROMPT_TEMPLATES, normalizeCustomTemplates(templates));
+}
+
+// ---- Data Management ----
+
+export function getStorageSummary() {
+  return {
+    usageMB: getStorageUsageMB(),
+    conversationCount: state.conversations.length,
+    promptTemplateCount: loadCustomPromptTemplates().length,
+  };
+}
+
+export async function exportAllDataPayload() {
+  return createBackupPayload({
+    settings: {
+      temperature: state.temperature,
+      maxTokens: state.maxTokens,
+      systemPrompt: state.systemPrompt,
+      apiBaseUrl: state.apiBaseUrl,
+      webSearchEnabled: state.webSearchEnabled,
+      reasoningEffort: state.reasoningEffort,
+    },
+    conversations: state.conversations,
+    activeConversationId: state.activeConversationId,
+    selectedModelId: state.selectedModelId,
+    models: state.models,
+    promptTemplates: loadCustomPromptTemplates(),
+    longTextAttachments: await exportLongTextAttachments(state.conversations),
+  });
+}
+
+export async function importAllData(rawBackup) {
+  const backup = parseBackupPayload(rawBackup);
+  const importedLongTextCount = await importLongTextAttachments(backup.longTextAttachments);
+  const merged = mergeBackupIntoState({
+    settings: {
+      temperature: state.temperature,
+      maxTokens: state.maxTokens,
+      systemPrompt: state.systemPrompt,
+      apiBaseUrl: state.apiBaseUrl,
+      webSearchEnabled: state.webSearchEnabled,
+      reasoningEffort: state.reasoningEffort,
+    },
+    conversations: state.conversations,
+    activeConversationId: state.activeConversationId,
+    selectedModelId: state.selectedModelId,
+    models: state.models,
+    promptTemplates: loadCustomPromptTemplates(),
+  }, backup);
+
+  if (typeof merged.settings.temperature === 'number') state.temperature = merged.settings.temperature;
+  if (typeof merged.settings.maxTokens === 'number') state.maxTokens = merged.settings.maxTokens;
+  if (typeof merged.settings.systemPrompt === 'string') state.systemPrompt = merged.settings.systemPrompt;
+  if (typeof merged.settings.apiBaseUrl === 'string') state.apiBaseUrl = merged.settings.apiBaseUrl;
+  state.webSearchEnabled = Boolean(merged.settings.webSearchEnabled);
+  state.reasoningEffort = REASONING_EFFORTS.includes(merged.settings.reasoningEffort)
+    ? merged.settings.reasoningEffort
+    : DEFAULT_REASONING_EFFORT;
+  state.models = merged.models;
+  state.selectedModelId = merged.selectedModelId;
+  state.conversations = merged.conversations;
+  state.activeConversationId = merged.activeConversationId;
+
+  saveSettings();
+  saveCachedModels();
+  saveSelectedModel();
+  saveConversations(merged.conversations);
+  saveActiveConversationId();
+  saveCustomPromptTemplates(merged.promptTemplates);
+
+  return {
+    conversations: merged.conversations.length,
+    promptTemplates: merged.promptTemplates.length,
+    longTextAttachments: importedLongTextCount,
+  };
+}
+
+export function pruneStoredConversations(limit) {
+  const result = pruneConversationsToLimit(state.conversations, limit);
+  if (!saveConversations(result.kept)) {
+    return { ok: false, removed: [] };
+  }
+  if (state.activeConversationId && !result.kept.some((conversation) => conversation.id === state.activeConversationId)) {
+    state.activeConversationId = result.kept[0]?.id ?? null;
+    saveActiveConversationId();
+  }
+  return { ok: true, removed: result.removed };
 }
 
 // ---- Theme ----

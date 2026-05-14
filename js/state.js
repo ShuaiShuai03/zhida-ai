@@ -2,7 +2,14 @@
  * Application state management — single source of truth.
  */
 
-import { MODELS, DEFAULT_TEMPERATURE, DEFAULT_MAX_TOKENS, DEFAULT_SYSTEM_PROMPT, DEFAULT_API_BASE_URL, DEFAULT_API_KEY } from './config.js';
+import {
+  MODELS,
+  DEFAULT_TEMPERATURE,
+  DEFAULT_MAX_TOKENS,
+  DEFAULT_SYSTEM_PROMPT,
+  DEFAULT_API_BASE_URL,
+  DEFAULT_REASONING_EFFORT,
+} from './config.js';
 
 /**
  * @typedef {Object} Message
@@ -22,6 +29,8 @@ import { MODELS, DEFAULT_TEMPERATURE, DEFAULT_MAX_TOKENS, DEFAULT_SYSTEM_PROMPT,
  * @property {Message[]} messages
  * @property {number} createdAt
  * @property {number} updatedAt
+ * @property {boolean} [pinned]
+ * @property {string[]} [tags]
  */
 
 /**
@@ -42,6 +51,8 @@ class AppState {
   #abortController = null;
   /** @type {string|null} */
   #currentRequestId = null;
+  /** @type {string|null} */
+  #currentResponseId = null;
   /** @type {boolean} */
   #sidebarOpen = false;
   /** @type {number} */
@@ -52,8 +63,16 @@ class AppState {
   #systemPrompt = DEFAULT_SYSTEM_PROMPT;
   /** @type {string} */
   #apiBaseUrl = DEFAULT_API_BASE_URL;
+  /** @type {boolean} */
+  #apiConfigured = false;
+  /** @type {boolean|null} */
+  #backendAvailable = null;
   /** @type {string} */
-  #apiKey = DEFAULT_API_KEY;
+  #backendError = '';
+  /** @type {boolean} */
+  #webSearchEnabled = false;
+  /** @type {'low'|'medium'|'high'|'xhigh'} */
+  #reasoningEffort = DEFAULT_REASONING_EFFORT;
 
   /** @type {Map<string, Set<Function>>} */
   #listeners = new Map();
@@ -67,12 +86,16 @@ class AppState {
   get isStreaming() { return this.#isStreaming; }
   get abortController() { return this.#abortController; }
   get currentRequestId() { return this.#currentRequestId; }
+  get currentResponseId() { return this.#currentResponseId; }
   get sidebarOpen() { return this.#sidebarOpen; }
   get temperature() { return this.#temperature; }
   get maxTokens() { return this.#maxTokens; }
   get systemPrompt() { return this.#systemPrompt; }
   get apiBaseUrl() { return this.#apiBaseUrl; }
-  get apiKey() { return this.#apiKey; }
+  get backendAvailable() { return this.#backendAvailable; }
+  get backendError() { return this.#backendError; }
+  get webSearchEnabled() { return this.#webSearchEnabled; }
+  get reasoningEffort() { return this.#reasoningEffort; }
 
   /**
    * Get the currently active conversation object.
@@ -87,7 +110,21 @@ class AppState {
    * @returns {Object}
    */
   get selectedModel() {
-    return this.#models.find((m) => m.id === this.#selectedModelId) ?? this.#models[0];
+    const model = this.#models.find((m) => m.id === this.#selectedModelId);
+    if (model) return model;
+    return {
+      id: this.#selectedModelId,
+      name: this.#selectedModelId ? `${this.#selectedModelId}（模型不可用）` : '模型不可用',
+      badge: '不可用',
+      badgeClass: 'badge--standard',
+      type: 'unavailable',
+      description: '当前模型不在可用模型列表中，请重新选择模型。',
+      supportsResponses: false,
+      supportsWebSearch: false,
+      supportsReasoningEffort: false,
+      capabilityReason: '当前会话使用的模型不可用。请重新选择一个可用模型后重试。',
+      unavailable: true,
+    };
   }
 
   // ---- Setters (with notification) ----
@@ -125,6 +162,10 @@ class AppState {
     this.#currentRequestId = value;
   }
 
+  set currentResponseId(value) {
+    this.#currentResponseId = value;
+  }
+
   set sidebarOpen(value) {
     this.#sidebarOpen = value;
     this.#notify('sidebar');
@@ -150,17 +191,38 @@ class AppState {
     this.#notify('settings');
   }
 
-  set apiKey(value) {
-    this.#apiKey = value;
+  set apiConfigured(value) {
+    this.#apiConfigured = Boolean(value);
+    this.#notify('settings');
+  }
+
+  set backendAvailable(value) {
+    this.#backendAvailable = value === null ? null : Boolean(value);
+    this.#notify('settings');
+  }
+
+  set backendError(value) {
+    this.#backendError = String(value || '');
+    this.#notify('settings');
+  }
+
+  set webSearchEnabled(value) {
+    this.#webSearchEnabled = Boolean(value);
+    this.#notify('settings');
+  }
+
+  set reasoningEffort(value) {
+    const allowed = new Set(['low', 'medium', 'high', 'xhigh']);
+    this.#reasoningEffort = allowed.has(value) ? value : DEFAULT_REASONING_EFFORT;
     this.#notify('settings');
   }
 
   /**
-   * Check whether the API is configured (both base URL and key present).
+   * Check whether the backend reports a saved API configuration.
    * @returns {boolean}
    */
   get isApiConfigured() {
-    return Boolean(this.#apiBaseUrl && this.#apiKey);
+    return this.#apiConfigured;
   }
 
   // ---- Subscriber Pattern ----

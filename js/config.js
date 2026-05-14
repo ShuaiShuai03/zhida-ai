@@ -5,16 +5,16 @@
 
 // ---- API Configuration ----
 // Users configure API_BASE_URL and API_KEY at runtime via the Settings modal.
-// Values are persisted in localStorage. The constants below serve as defaults
-// for first-time visitors — leave them empty to require manual configuration.
+// The browser sends them only to the same-origin Node backend configuration
+// endpoint. API keys are not persisted in localStorage or exported backups.
 export const DEFAULT_API_BASE_URL = '';
-export const DEFAULT_API_KEY = '';
-export const API_ENDPOINT = '/v1/chat/completions';
 
 // ---- Request Defaults ----
 export const DEFAULT_TEMPERATURE = 0.7;
 export const DEFAULT_MAX_TOKENS = 4096;
 export const REQUEST_TIMEOUT = 60000; // 60 seconds
+export const DEFAULT_REASONING_EFFORT = 'medium';
+export const REASONING_EFFORTS = ['low', 'medium', 'high', 'xhigh'];
 
 // ---- Default System Prompt ----
 export const DEFAULT_SYSTEM_PROMPT = '你是一个有用的AI助手。请用简体中文回答所有问题。';
@@ -34,6 +34,10 @@ export const FILE_INPUT_ACCEPT = [
   ...SUPPORTED_TEXT_FILE_EXTENSIONS,
   ...SUPPORTED_IMAGE_FILE_EXTENSIONS,
 ].map((ext) => `.${ext}`).join(',');
+
+// ---- Long Text Attachment Support ----
+export const LONG_TEXT_AUTO_MD_THRESHOLD = 4000;
+export const LONG_TEXT_EXCERPT_MAX = 1200;
 
 // ---- Model Definitions ----
 export const MODELS = [
@@ -103,6 +107,7 @@ export const STORAGE_KEYS = {
   THEME: 'ai_chat_theme',
   SETTINGS: 'ai_chat_settings',
   MODELS: 'ai_chat_models',
+  PROMPT_TEMPLATES: 'ai_chat_prompt_templates',
 };
 
 // ---- Limits ----

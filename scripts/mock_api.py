@@ -10,16 +10,26 @@ MODELS = [
     {
         "id": "smoke-standard",
         "owned_by": "mock-provider",
+        "call_methods": ["chat.completions"],
     },
     {
         "id": "smoke-thinking",
         "owned_by": "mock-provider",
+        "call_methods": ["chat.completions"],
+    },
+    {
+        "id": "gpt-5.5-smoke",
+        "owned_by": "openai",
+        "call_methods": ["chat.completions", "responses"],
+        "supported_parameters": ["reasoning"],
     },
 ]
 
 
 def extract_prompt(payload):
-    messages = payload.get("messages") or []
+    messages = payload.get("messages") or payload.get("input") or []
+    if isinstance(messages, str):
+        return messages
     if not messages:
         return ""
 
@@ -27,7 +37,7 @@ def extract_prompt(payload):
     if isinstance(content, list):
         text_parts = []
         for part in content:
-            if part.get("type") == "text":
+            if part.get("type") in ("text", "input_text"):
                 text_parts.append(part.get("text", ""))
         return "\n".join(text_parts)
     return str(content)
@@ -59,6 +69,42 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_POST(self):
+        if self.path.startswith("/v1/responses/") and self.path.endswith("/cancel"):
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps({"status": "cancelled"}).encode("utf-8"))
+            return
+
+        if self.path == "/v1/responses":
+            length = int(self.headers.get("Content-Length", "0"))
+            raw_body = self.rfile.read(length)
+            payload = json.loads(raw_body.decode("utf-8") or "{}")
+            prompt = extract_prompt(payload).lower()
+            has_search = any(tool.get("type") == "web_search" for tool in payload.get("tools", []))
+            effort = (payload.get("reasoning") or {}).get("effort", "")
+
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+            self.send_header("Connection", "keep-alive")
+            self.end_headers()
+
+            self.wfile.write(b'event: response.created\ndata: {"id":"resp_smoke"}\n\n')
+            if has_search:
+                self.wfile.write(b'event: response.output_item.added\ndata: {"item":{"type":"web_search_call"}}\n\n')
+                self.write_response_sse("Responses search reply")
+            elif "reasoning check" in prompt:
+                self.write_response_sse(f"reasoning: {effort}")
+            else:
+                self.write_response_sse("Responses reply")
+            self.wfile.write(
+                b'event: response.completed\ndata: {"response":{"output":[{"content":[{"annotations":[{"type":"url_citation","url":"https://example.com/source","title":"Example Source"}]}]}]}}\n\n'
+            )
+            self.wfile.write(b"data: [DONE]\n\n")
+            self.wfile.flush()
+            self.close_connection = True
+            return
+
         if self.path != "/v1/chat/completions":
             self.send_response(404)
             self.end_headers()
@@ -115,6 +161,14 @@ class Handler(BaseHTTPRequestHandler):
 
     def write_sse(self, payload):
         message = f"data: {json.dumps(payload, ensure_ascii=False)}\n\n".encode("utf-8")
+        self.wfile.write(message)
+        self.wfile.flush()
+
+    def write_response_sse(self, text):
+        message = (
+            "event: response.output_text.delta\n"
+            f"data: {json.dumps({'delta': text}, ensure_ascii=False)}\n\n"
+        ).encode("utf-8")
         self.wfile.write(message)
         self.wfile.flush()
 

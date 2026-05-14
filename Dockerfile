@@ -31,6 +31,12 @@ server {
         add_header Cache-Control "public, immutable";
     }
 
+    # API calls require the Node backend image.
+    location /api/ {
+        default_type application/json;
+        return 404 '{"error":{"message":"Node backend is required for API calls"}}';
+    }
+
     # SPA fallback
     location / {
         try_files $uri $uri/ /index.html;

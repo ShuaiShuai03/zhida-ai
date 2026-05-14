@@ -1,0 +1,19 @@
+services:
+  zhida-ai-proxy:
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+    container_name: zhida-ai-proxy
+    ports:
+      - "3000:3000"
+    environment:
+      ZHIDA_PORT: "3000"
+      ZHIDA_CONFIG_SECRET: "${ZHIDA_CONFIG_SECRET:?set ZHIDA_CONFIG_SECRET}"
+      ZHIDA_CONFIG_PATH: "/app/server/data/config.enc.json"
+      ZHIDA_PROXY_TIMEOUT_MS: "${ZHIDA_PROXY_TIMEOUT_MS:-120000}"
+    volumes:
+      - zhida-ai-config:/app/server/data
+    restart: unless-stopped
+
+volumes:
+  zhida-ai-config:

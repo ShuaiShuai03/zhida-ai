@@ -3,15 +3,15 @@
 [![CI](https://github.com/ShuaiShuai03/zhida-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/ShuaiShuai03/zhida-ai/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-一个纯前端、零构建依赖的 AI 对话 Web 应用，支持 OpenAI 兼容 Chat Completions API、实时流式响应、多模型切换、思考过程展示和本地会话管理。
+一个零前端构建依赖的 AI 对话 Web 应用，支持 OpenAI 兼容 Chat Completions API、实时流式响应、多模型切换、思考过程展示、本地会话管理，以及同源 Node.js API 代理。
 
 > **安全与隐私说明**
 > 
-> 这是浏览器直连 API 的纯前端应用：
-> - API 密钥保存在浏览器 `localStorage` 中，不会发送到本仓库或第三方服务器
-> - 当你发送消息或获取模型列表时，密钥会直接从浏览器发送到你配置的 API 服务
-> - 本仓库不包含服务端代理，无法替你隐藏密钥
-> - 你使用的 API 必须能被浏览器直接访问，并正确开启 CORS
+> 聊天能力必须通过本仓库的 Node 后端代理：
+> - 浏览器只请求同源 `/api/models` 和 `/api/chat/completions`
+> - API 密钥不会写入浏览器 `localStorage`、备份 JSON 或前端请求头
+> - 在设置中填写的 API 地址和密钥会提交给同源后端；后端使用 `ZHIDA_CONFIG_SECRET` 派生的 AES-256-GCM 密钥加密保存
+> - GitHub Pages 和纯静态托管不能隐藏密钥，也不能作为可直接调用 API 的安全部署形态；需要聊天能力时请运行 Node 后端
 > 
 > **内容安全**
 > 
@@ -26,55 +26,72 @@
 | **对话** | 多轮上下文、SSE 实时流式输出、停止生成、重新生成 |
 | **模型** | 默认模型列表、自定义模型、每个对话保留独立模型、保存后自动刷新模型、手动获取模型列表 |
 | **内容** | Markdown / 代码高亮 / LaTeX、思考模型 `reasoning_content` / `<think>` 展示 |
-| **管理** | 对话搜索、双击重命名、删除、清空全部、Markdown 导出 |
+| **管理** | 对话搜索、置顶、标签、双击重命名、删除、清空全部、Markdown 导出、全量备份恢复、旧对话清理 |
+| **模板** | 内置提示词模板、自定义模板增删改、点击插入输入框 |
 | **输入** | 文本输入、图片上传、代码/文本文件上传、拖拽文件、粘贴图片 |
 | **体验** | 深浅色主题、响应式布局、快捷键、系统提示词、温度与最大回复长度设置 |
-| **部署** | 本地静态服务器、Docker、GitHub Pages / 任意静态托管 |
+| **部署** | Node 后端代理、Docker 后端代理；静态托管仅适合查看前端，不提供安全 API 调用能力 |
 
 ## 快速开始
 
-### 方式一：本地启动
+### 方式一：Node 后端代理
 
 ```bash
 git clone https://github.com/ShuaiShuai03/zhida-ai.git
 cd zhida-ai
 
-# macOS / Linux
-bash scripts/start.sh
-
-# Windows PowerShell
-powershell -ExecutionPolicy Bypass -File scripts\start.ps1
+ZHIDA_CONFIG_SECRET="change-this-to-a-long-random-secret" \
+ZHIDA_PORT=3000 \
+node server/server.js
 ```
 
-或者手动启动任意静态文件服务器：
+也可以使用脚本启动：
 
 ```bash
-# Python（需 3.x）
-python3 -m http.server 3000
+ZHIDA_CONFIG_SECRET="change-this-to-a-long-random-secret" bash scripts/start.sh 3000
+```
 
-# Node.js
+打开 `http://localhost:3000`，点击右上角 **设置**，填入 API 地址和密钥，然后点击 **保存配置并获取模型列表**。API 地址可以填写 `https://api.openai.com` 或 `https://api.openai.com/v1`；后端会统一归一化，避免重复拼接 `/v1`。后端会将配置加密保存到 `server/data/config.enc.json`，随后代理会转发：
+
+| 浏览器请求 | 上游请求 |
+|------------|----------|
+| `GET /api/config/status` | 读取脱敏配置状态，不返回密钥 |
+| `PUT /api/config` | 加密保存 API 地址和密钥 |
+| `GET /api/models` | `${apiBaseUrl}/v1/models` |
+| `POST /api/chat/completions` | `${apiBaseUrl}/v1/chat/completions` |
+
+可选环境变量：
+
+| 变量 | 说明 | 默认 |
+|------|------|------|
+| `ZHIDA_CONFIG_SECRET` | 加密 API 密钥的服务端密钥，必须设置 | 必填 |
+| `ZHIDA_CONFIG_PATH` | 加密配置文件路径 | `server/data/config.enc.json` |
+| `ZHIDA_PORT` | 本地监听端口 | `3000` |
+| `ZHIDA_PROXY_TIMEOUT_MS` | 代理请求超时 | `120000` |
+| `ZHIDA_PROXY_MAX_BODY_BYTES` | 单次代理请求体上限 | `10485760` |
+
+### 方式二：Docker 后端代理
+
+```bash
+git clone https://github.com/ShuaiShuai03/zhida-ai.git
+cd zhida-ai
+
+ZHIDA_CONFIG_SECRET="change-this-to-a-long-random-secret" \
+docker compose -f docker-compose.proxy.yml up -d
+```
+
+访问 `http://localhost:3000`，在设置中填写 API 地址和密钥。`docker-compose.proxy.yml` 使用命名卷保存加密配置文件。
+
+### 方式三：静态托管
+
+你仍可以用任意静态服务器查看界面：
+
+```bash
 npx serve . -p 3000
+python3 -m http.server 3000
 ```
 
-打开 `http://localhost:3000`，点击右上角 **设置**，填入 API 地址和密钥后开始对话。
-
-### 方式二：Docker
-
-```bash
-git clone https://github.com/ShuaiShuai03/zhida-ai.git
-cd zhida-ai
-docker compose up -d
-```
-
-访问 `http://localhost:3000`。
-
-### 方式三：GitHub Pages / 静态托管
-
-1. Fork 本仓库。
-2. 通过 GitHub Pages 或任意静态文件托管服务发布仓库根目录。
-3. 打开部署后的页面，配置你的 API。
-
-适用前提：目标 API 必须允许从部署域名发起浏览器跨域请求。仓库本身不提供反向代理或服务端密钥保护。
+但 `npx serve . -p 3000`、`python3 -m http.server 3000` 和 GitHub Pages 都只是纯静态托管。它们没有 `/api/config/status`、`PUT /api/config`、`/api/models` 和 `/api/chat/completions` 后端能力，不能安全保存或隐藏 API key，也不能直接完成模型获取或聊天请求。需要完整功能时，请改用 `ZHIDA_CONFIG_SECRET="..." node server/server.js` 或 `scripts/start.sh` 启动 Node 后端代理。
 
 ## 配置 API
 
@@ -82,24 +99,33 @@ docker compose up -d
 
 | 字段 | 说明 | 示例 |
 |------|------|------|
-| API 地址 | 浏览器可直接访问、且开启 CORS 的 OpenAI 兼容接口基础 URL | `https://api.openai.com` |
-| API 密钥 | 用于身份验证的密钥 | `sk-...` |
+| API 地址 | OpenAI 兼容接口基础 URL，由后端代理使用，可带或不带尾部 `/v1` | `https://api.openai.com` 或 `https://api.openai.com/v1` |
+| API 密钥 | 用于服务端代理访问上游 API；保存成功后输入框清空 | `sk-...` |
 | 系统提示词 | 自定义模型行为 | `你是一个严谨的代码审查助手。` |
 | 温度 | 控制输出随机性 | `0.7` |
 | 最大回复长度 | 限制单次回复 token 数 | `4096` |
 
-支持前提不是“任何 OpenAI 兼容 API”，而是：
+上游 API 需要：
 
 1. 提供 `/v1/chat/completions`。
 2. 如需自动获取模型列表，还需要提供 `/v1/models`。
-3. 浏览器端请求必须被该服务允许，尤其是 CORS、认证头和 SSE。
-4. 推荐支持标准 SSE 流式响应；如果服务返回 OpenAI 风格的普通 JSON 成功响应，应用会按非流式结果展示。
+3. 推荐支持标准 SSE 流式响应；如果服务返回 OpenAI 风格的普通 JSON 成功响应，应用会按非流式结果展示。
+
+浏览器不会直接访问上游 API，也不会向上游发送 `Authorization`。所有上游认证都由 Node 后端使用已加密保存的配置完成。
+
+## 数据管理与模板
+
+- **提示词模板**：点击输入框右侧模板按钮或侧边栏 **提示词模板**，可插入内置模板，或创建、编辑、删除自定义模板。插入模板只会填入输入框，不会自动发送。
+- **对话组织**：对话支持置顶和标签；搜索会匹配标题、消息内容、模型名和标签，也可以输入 `#标签名` 进行标签筛选。
+- **备份恢复**：侧边栏 **数据管理** 可导出全部本地数据为 JSON，包含对话、当前激活对话、模型选择、模型缓存、非敏感设置、自定义模板、导出版本和 BJT 导出时间。备份不包含 API 密钥。导入采用合并模式，同 ID 对话以导入文件为准。
+- **清理旧对话**：可配置保留数量，应用会优先保留置顶对话，普通对话按 `updatedAt` 从旧到新删除。
+- **Markdown 导出**：单对话 Markdown 导出会包含模型、BJT 创建时间、置顶状态、标签和消息数。
 
 ### 模型列表
 
 - 默认模型定义在 [js/config.js](js/config.js)。
-- 保存 API 配置后，应用会自动请求 `/v1/models` 刷新模型列表。
-- 设置弹窗中的 **获取模型列表** 只会校验当前表单配置，不会在未保存时污染当前运行配置。
+- 保存 API 配置后，应用会通过同源 `/api/models` 刷新模型列表。
+- 设置弹窗中的 **保存配置并获取模型列表** 会先把配置加密保存到后端，再同步更新实际对话模型下拉框。
 - 切换历史对话时，应用会恢复该对话保存的模型，继续发送时不会被其他对话当前选中的模型覆盖。
 
 ### 文件与图片上传
@@ -142,11 +168,14 @@ for f in js/*.js; do node --check "$f"; done
 # 纯逻辑单测
 node --test tests/*.test.mjs
 
+# 可选 Node 代理语法校验
+node --check server/server.js
+
 # 浏览器 smoke（需要本机可执行 google-chrome）
 bash scripts/run_smoke.sh
 ```
 
-浏览器 smoke 会启动本地静态服务器和 mock API，覆盖设置保存、模型获取、会话模型恢复、流式回答、停止生成、后续请求恢复、Markdown URL 清洗、复制内容一致性以及键盘可达性。若 Chrome 在 CI 或慢机器上需要更长时间，可设置：
+浏览器 smoke 会启动本地 Node 后端和 mock API，覆盖加密配置保存、模型获取、会话模型恢复、流式回答、停止生成、后续请求恢复、提示词模板、对话置顶/标签搜索、备份导入恢复、Markdown URL 清洗、复制内容一致性以及键盘可达性。若 Chrome 在 CI 或慢机器上需要更长时间，可设置：
 
 ```bash
 CHROME_TIMEOUT=180s bash scripts/run_smoke.sh
@@ -161,10 +190,12 @@ zhida-ai/
 ├── js/
 │   ├── api.js
 │   ├── app.js
+│   ├── backup-utils.js
 │   ├── chat.js
 │   ├── config.js
 │   ├── conversation-utils.js
 │   ├── markdown.js
+│   ├── prompt-templates.js
 │   ├── state.js
 │   ├── storage.js
 │   ├── theme.js
@@ -177,12 +208,17 @@ zhida-ai/
 │   ├── run_smoke.sh
 │   ├── start.ps1
 │   └── start.sh
+├── server/
+│   └── server.js
 ├── tests/
 │   ├── conversation-utils.test.mjs
+│   ├── server.test.mjs
 │   └── smoke.html
 ├── .github/
 ├── Dockerfile
+├── Dockerfile.server
 ├── docker-compose.yml
+├── docker-compose.proxy.yml
 ├── CONTRIBUTING.md
 ├── CODE_OF_CONDUCT.md
 ├── SECURITY.md
@@ -197,6 +233,7 @@ zhida-ai/
 | [marked.js](https://github.com/markedjs/marked) | Markdown 解析 |
 | [highlight.js](https://highlightjs.org/) | 代码高亮 |
 | [KaTeX](https://katex.org/) | 数学公式渲染 |
+| Node.js 18+ 内置 `http` / `fetch` / `crypto` | 静态服务、配置加密和 API 代理 |
 | Nginx | Docker 静态部署 |
 | Google Chrome Headless | 浏览器 smoke 测试 |
 
@@ -213,25 +250,25 @@ zhida-ai/
 <details>
 <summary><strong>Q: 为什么配置正确仍然请求失败？</strong></summary>
 
-最常见原因是 CORS。该应用从浏览器直接访问你的 API，因此目标服务必须允许当前页面域名发起跨域请求，并允许 `Authorization` 等请求头及 SSE 响应。
+请确认你正在运行 `node server/server.js` 或 `scripts/start.sh`，并且设置了 `ZHIDA_CONFIG_SECRET`。`npx serve . -p 3000`、`python3 -m http.server 3000` 和 GitHub Pages 只是纯静态服务器，没有同源 `/api/*` 后端能力，不能保存 API key、获取模型列表或完成聊天请求。
 </details>
 
 <details>
 <summary><strong>Q: 如何连接本地 Ollama？</strong></summary>
 
-如果浏览器所在机器可以直接访问 Ollama，可将 API 地址填写为 `http://localhost:11434`，密钥可填任意值（例如 `ollama`）。如果页面部署在远程域名，而 Ollama 只监听你本机回环地址，浏览器端将无法直接连通。
+如果 Node 后端和 Ollama 在同一台机器，可将 API 地址填写为 `http://localhost:11434`，密钥可填任意值（例如 `ollama`）。如果 Node 后端部署在远程服务器，而 Ollama 只监听你本机回环地址，后端将无法连通。
 </details>
 
 <details>
 <summary><strong>Q: 对话数据存在哪里？</strong></summary>
 
-会话、模型缓存、主题和设置都保存在浏览器 `localStorage` 中。清除站点数据会丢失这些内容；密钥不会自动同步到其他设备。
+会话、模型缓存、主题和非敏感设置保存在浏览器 `localStorage` 中。API 密钥加密保存在 Node 后端的配置文件里；清除站点数据不会删除服务端加密配置。
 </details>
 
 <details>
 <summary><strong>Q: 可以隐藏 API 密钥吗？</strong></summary>
 
-不能。只要是纯前端浏览器直连，密钥就必须由浏览器持有并发送到目标 API。如果你需要真正隐藏密钥，应在你自己的服务端提供代理。
+可以。当前版本只支持服务端代理调用上游 API；浏览器不会持久化或向上游发送 API 密钥。需要注意的是，拥有服务器进程权限和 `ZHIDA_CONFIG_SECRET` 的人仍可解密配置，这是服务端代理模式的正常信任边界。
 </details>
 
 ## 贡献

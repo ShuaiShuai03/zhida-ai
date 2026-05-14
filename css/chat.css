@@ -279,6 +279,12 @@
   animation-delay: 0.32s;
 }
 
+.streaming-status {
+  margin-top: var(--space-2);
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-sm);
+}
+
 /* ============================================
    Thinking / Reasoning Block
    ============================================ */

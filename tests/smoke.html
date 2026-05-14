@@ -69,6 +69,8 @@
       const doc = frame.contentDocument;
       const win = frame.contentWindow;
       if (!doc || !win) fail('iframe not accessible');
+      win.confirm = () => true;
+      win.prompt = () => 'smokeTag';
 
       await waitFor(() => doc.querySelector('#chat-input'), 'app init');
       await waitFor(() => doc.querySelector('#theme-toggle')?.innerHTML.trim(), 'theme icon render');
@@ -79,9 +81,56 @@
       if (doc.querySelector('#model-trigger')?.getAttribute('aria-controls') !== 'model-list') {
         fail('model trigger should be bound to the listbox');
       }
-      if (!doc.querySelector('#file-input')?.accept.includes('.tsx')) {
-        fail('file input accept should include .tsx');
+      await waitFor(
+        () => doc.querySelector('#file-input')?.accept.includes('.tsx'),
+        'file input accept includes .tsx'
+      );
+      const composer = doc.querySelector('.composer');
+      if (!composer || !composer.contains(doc.querySelector('#upload-btn')) || !composer.contains(doc.querySelector('#send-btn'))) {
+        fail('upload, textarea, and send controls should share one composer container');
       }
+      const composerFooter = doc.querySelector('.composer__footer');
+      if (
+        !composerFooter ||
+        !composerFooter.contains(doc.querySelector('#send-btn')) ||
+        !composerFooter.contains(doc.querySelector('#stop-btn'))
+      ) {
+        fail('send and stop buttons should live directly in the composer footer');
+      }
+      if (doc.querySelector('#send-btn button') || doc.querySelector('#stop-btn button')) {
+        fail('composer footer actions should not contain nested buttons');
+      }
+      const textareaRect = doc.querySelector('#chat-input').getBoundingClientRect();
+      const sendRect = doc.querySelector('#send-btn').getBoundingClientRect();
+      if (!(sendRect.top >= textareaRect.bottom)) {
+        fail('composer controls should place send below textarea');
+      }
+      if (!doc.querySelector('#web-search-toggle') || !doc.querySelector('#reasoning-effort-select')) {
+        fail('composer should include web search and reasoning controls');
+      }
+      if (sendRect.width < 36 || sendRect.width > 56) {
+        fail('send button should be a compact circular action');
+      }
+      if (!doc.querySelector('#send-btn')?.disabled) {
+        fail('empty composer should disable the send button');
+      }
+      click(doc.querySelector('#send-btn'));
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      if (doc.querySelectorAll('.message--user').length !== 0) {
+        fail('disabled send button should not send an empty message');
+      }
+      frame.style.width = '390px';
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      const mobileFooterRect = doc.querySelector('.composer__footer').getBoundingClientRect();
+      const mobileSendRect = doc.querySelector('#send-btn').getBoundingClientRect();
+      if (mobileSendRect.width > mobileFooterRect.width + 1 || mobileSendRect.right > mobileFooterRect.right + 1) {
+        fail('mobile send button should fit inside the composer footer');
+      }
+      if (mobileSendRect.left < -1 || mobileSendRect.right > win.innerWidth + 1) {
+        fail('mobile send button should fit inside the viewport');
+      }
+      frame.style.width = '1280px';
+      await new Promise((resolve) => setTimeout(resolve, 50));
 
       click(doc.querySelector('#settings-btn'));
       await waitFor(
@@ -89,14 +138,22 @@
         'settings modal open'
       );
 
-      inputValue(doc.querySelector('#settings-api-base-url'), 'http://127.0.0.1:11434');
+      inputValue(doc.querySelector('#settings-api-base-url'), 'http://127.0.0.1:11434/v1');
       inputValue(doc.querySelector('#settings-api-key'), 'smoke-key');
       click(doc.querySelector('#fetch-models-btn'));
 
       await waitFor(
-        () => doc.body.textContent.includes('已获取 2 个可用模型'),
-        'fetch models toast'
+        () => doc.body.textContent.includes('已获取 3 个可用模型'),
+        'save config and fetch models toast'
       );
+      await waitFor(
+        () => doc.querySelector('#settings-api-key')?.value === '',
+        'api key field cleared after config save'
+      );
+      const storedSettingsAfterConfig = JSON.parse(win.localStorage.getItem('ai_chat_settings') || '{}');
+      if ('apiKey' in storedSettingsAfterConfig) {
+        fail('localStorage settings should not contain apiKey');
+      }
 
       click(doc.querySelector('#settings-modal .modal__close'));
       await waitFor(
@@ -104,26 +161,20 @@
         'settings modal close'
       );
 
-      inputValue(doc.querySelector('#chat-input'), 'unsaved config should fail');
-      click(doc.querySelector('#send-btn'));
-      await waitFor(
-        () => doc.body.textContent.includes('请先在设置中配置 API 地址和密钥'),
-        'unsaved config rejection'
-      );
-
       click(doc.querySelector('#settings-btn'));
       await waitFor(
         () => doc.querySelector('#settings-modal')?.classList.contains('visible'),
         'settings modal reopen'
       );
-      inputValue(doc.querySelector('#settings-api-base-url'), 'http://127.0.0.1:11434');
-      inputValue(doc.querySelector('#settings-api-key'), 'smoke-key');
       click(doc.querySelector('#settings-save-btn'));
 
       await waitFor(
         () => JSON.parse(win.localStorage.getItem('ai_chat_settings') || '{}').apiBaseUrl === 'http://127.0.0.1:11434',
         'settings persisted'
       );
+      if ('apiKey' in JSON.parse(win.localStorage.getItem('ai_chat_settings') || '{}')) {
+        fail('settings save should not persist apiKey');
+      }
 
       click(doc.querySelector('#model-trigger'));
       await waitFor(
@@ -169,7 +220,7 @@
       click(doc.querySelector('#send-btn'));
       await waitFor(
         () => Array.from(doc.querySelectorAll('.message--ai .message__content')).some((node) => node.textContent.includes('model: smoke-thinking')),
-        'thinking model used for first conversation'
+        'thinking model stays on chat completions for first conversation'
       );
 
       click(doc.querySelector('#new-chat-btn'));
@@ -204,7 +255,18 @@
       await waitFor(
         () => Array.from(doc.querySelectorAll('.message--ai .message__content'))
           .filter((node) => node.textContent.includes('model: smoke-thinking')).length >= 2,
-        'restored conversation model used for follow-up'
+        'restored thinking conversation keeps its chat-completions model for follow-up'
+      );
+
+      click(doc.querySelector('#model-trigger'));
+      await waitFor(
+        () => doc.querySelector('#model-trigger')?.getAttribute('aria-expanded') === 'true',
+        'model selector open before standard chat'
+      );
+      click(findByText('.model-selector__item', 'Smoke Standard', doc));
+      await waitFor(
+        () => doc.querySelector('#model-trigger')?.textContent.includes('Smoke Standard'),
+        'standard model restored before basic chat'
       );
 
       click(doc.querySelector('#new-chat-btn'));
@@ -215,6 +277,48 @@
         'basic AI reply'
       );
 
+      click(doc.querySelector('#input-template-btn'));
+      await waitFor(
+        () => doc.querySelector('#prompt-templates-modal')?.classList.contains('visible'),
+        'prompt templates modal open'
+      );
+      inputValue(doc.querySelector('#prompt-template-name'), 'Smoke Template');
+      inputValue(doc.querySelector('#prompt-template-content'), 'Template body {{text}}');
+      doc.querySelector('#prompt-template-form').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      await waitFor(
+        () => findByText('.template-item', 'Smoke Template', doc),
+        'custom template rendered'
+      );
+      const smokeTemplate = findByText('.template-item', 'Smoke Template', doc);
+      click(smokeTemplate.querySelector('[data-template-action="insert"]'));
+      await waitFor(
+        () => doc.querySelector('#chat-input')?.value.includes('Template body {{text}}'),
+        'template inserted into input'
+      );
+      inputValue(doc.querySelector('#chat-input'), '');
+
+      const activeHelloConversation = findByText('.conversation-item.active', 'hello smoke', doc);
+      if (!activeHelloConversation) {
+        fail('hello smoke conversation should be active');
+      }
+      click(activeHelloConversation.querySelector('.conversation-item__pin'));
+      await waitFor(
+        () => findByText('.conversation-item', 'hello smoke', doc)?.querySelector('.conversation-item__pin')?.getAttribute('aria-pressed') === 'true',
+        'conversation pinned'
+      );
+      click(findByText('.conversation-item', 'hello smoke', doc).querySelector('.conversation-item__tags-btn'));
+      await waitFor(
+        () => findByText('.conversation-item', '#smokeTag', doc),
+        'conversation tag rendered'
+      );
+      inputValue(doc.querySelector('#sidebar-search'), '#smokeTag');
+      await waitFor(
+        () => doc.querySelectorAll('.conversation-item').length === 1 && findByText('.conversation-item', 'hello smoke', doc),
+        'tag search filters conversations'
+      );
+      inputValue(doc.querySelector('#sidebar-search'), '');
+
+      const aiCountBeforeSpecial = doc.querySelectorAll('.message--ai .message__content').length;
       inputValue(doc.querySelector('#chat-input'), 'copy <div>&" check');
       click(doc.querySelector('#send-btn'));
       await waitFor(
@@ -226,11 +330,69 @@
       if (userCopyButton?.dataset.content !== 'copy <div>&" check') {
         fail('user copy data should preserve raw special characters');
       }
+      await waitFor(
+        () => doc.querySelectorAll('.message--ai .message__content').length > aiCountBeforeSpecial,
+        'special character message gets a completed reply'
+      );
       userCopyButton.focus();
       await waitFor(
         () => win.getComputedStyle(specialUserMessage.querySelector('.message__actions')).opacity === '1',
         'message actions visible on keyboard focus'
       );
+
+      if (!doc.querySelector('#reasoning-effort-select')?.disabled) {
+        fail('standard model should disable reasoning depth control');
+      }
+      if (!doc.querySelector('#web-search-toggle')?.disabled) {
+        fail('chat-only standard model should disable web search');
+      }
+      doc.querySelector('#web-search-toggle').checked = true;
+      doc.querySelector('#web-search-toggle').dispatchEvent(new Event('change', { bubbles: true }));
+      if (doc.querySelector('#web-search-toggle')?.checked) {
+        fail('disabled web search toggle should remain unchecked for chat-only model');
+      }
+      click(doc.querySelector('#model-trigger'));
+      const responsesOptionForSearch = await waitFor(
+        () => findByText('.model-selector__item', 'GPT 5.5 Smoke', doc),
+        'responses-capable model option for search'
+      );
+      click(responsesOptionForSearch);
+      await waitFor(
+        () => !doc.querySelector('#web-search-toggle')?.disabled,
+        'responses-capable model enables web search'
+      );
+      doc.querySelector('#web-search-toggle').checked = true;
+      doc.querySelector('#web-search-toggle').dispatchEvent(new Event('change', { bubbles: true }));
+      inputValue(doc.querySelector('#chat-input'), 'web search check');
+      click(doc.querySelector('#send-btn'));
+      await waitFor(
+        () => Array.from(doc.querySelectorAll('.message--ai .message__content')).some((node) => node.textContent.includes('Responses search reply')),
+        'web search responses reply'
+      );
+      await waitFor(
+        () => Array.from(doc.querySelectorAll('.message--ai .message__content')).some((node) => node.textContent.includes('Example Source')),
+        'responses citation rendered'
+      );
+      doc.querySelector('#web-search-toggle').checked = false;
+      doc.querySelector('#web-search-toggle').dispatchEvent(new Event('change', { bubbles: true }));
+
+      await waitFor(
+        () => !doc.querySelector('#reasoning-effort-select')?.disabled,
+        'responses-capable model enables reasoning depth'
+      );
+      inputValue(doc.querySelector('#reasoning-effort-select'), 'high');
+      inputValue(doc.querySelector('#chat-input'), 'reasoning check');
+      click(doc.querySelector('#send-btn'));
+      await waitFor(
+        () => Array.from(doc.querySelectorAll('.message--ai .message__content')).some((node) => node.textContent.includes('reasoning: high')),
+        'reasoning effort forwarded to responses'
+      );
+      click(doc.querySelector('#model-trigger'));
+      const standardOption = await waitFor(
+        () => findByText('.model-selector__item', 'Smoke Standard', doc),
+        'standard model option'
+      );
+      click(standardOption);
 
       click(doc.querySelector('#new-chat-btn'));
       inputValue(doc.querySelector('#chat-input'), 'slow response please');
@@ -239,11 +401,18 @@
         () => !doc.querySelector('#stop-btn')?.classList.contains('hidden'),
         'stop button visible'
       );
+      const activeStopRect = doc.querySelector('#stop-btn').getBoundingClientRect();
+      if (!doc.querySelector('#send-btn')?.classList.contains('hidden')) {
+        fail('send button should be hidden while stop button is visible');
+      }
+      if (activeStopRect.width < 96) {
+        fail('stop button should remain large enough while generating');
+      }
       await waitFor(
         () => Array.from(doc.querySelectorAll('.message--ai .message__content')).some((node) => node.textContent.includes('Partial')),
         'partial response visible'
       );
-      click(doc.querySelector('#stop-btn'));
+      click(doc.querySelector('.stop-btn__label'));
 
       inputValue(doc.querySelector('#chat-input'), 'follow up after stop');
       click(doc.querySelector('#send-btn'));
@@ -299,6 +468,54 @@
       if (doc.querySelector('.loading-indicator')) {
         fail('loading indicator should be cleaned up after abort and follow-up send');
       }
+
+      const backup = {
+        version: 1,
+        exportedAt: '2026/05/13 12:00:00',
+        settings: JSON.parse(win.localStorage.getItem('ai_chat_settings') || '{}'),
+        conversations: JSON.parse(win.localStorage.getItem('ai_chat_conversations') || '[]'),
+        activeConversationId: JSON.parse(win.localStorage.getItem('ai_chat_active_id') || 'null'),
+        selectedModelId: JSON.parse(win.localStorage.getItem('ai_chat_model') || 'null'),
+        models: JSON.parse(win.localStorage.getItem('ai_chat_models') || '[]'),
+        promptTemplates: JSON.parse(win.localStorage.getItem('ai_chat_prompt_templates') || '[]'),
+      };
+      if ('apiKey' in backup.settings) {
+        fail('backup settings should not contain apiKey');
+      }
+
+      click(doc.querySelector('#clear-all-btn'));
+      await waitFor(
+        () => doc.querySelector('#confirm-modal')?.classList.contains('visible'),
+        'clear all confirmation visible'
+      );
+      click(doc.querySelector('#confirm-ok-btn'));
+      await waitFor(
+        () => doc.querySelectorAll('.conversation-item').length === 0,
+        'conversations cleared before import'
+      );
+      win.localStorage.removeItem('ai_chat_prompt_templates');
+
+      click(doc.querySelector('#data-management-btn'));
+      await waitFor(
+        () => doc.querySelector('#data-management-modal')?.classList.contains('visible'),
+        'data management modal open'
+      );
+      const file = new win.File([JSON.stringify(backup)], 'backup.json', { type: 'application/json' });
+      const transfer = new win.DataTransfer();
+      transfer.items.add(file);
+      const importInput = doc.querySelector('#import-data-input');
+      importInput.files = transfer.files;
+      importInput.dispatchEvent(new Event('change', { bubbles: true }));
+      await waitFor(
+        () => findByText('.conversation-item', 'hello smoke', doc),
+        'conversation restored after data import'
+      );
+      click(doc.querySelector('#data-management-modal .modal__close'));
+      click(doc.querySelector('#prompt-templates-btn'));
+      await waitFor(
+        () => findByText('.template-item', 'Smoke Template', doc),
+        'custom template restored after data import'
+      );
 
       document.body.dataset.smokeResult = 'pass';
       log('PASS');

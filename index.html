@@ -7,7 +7,7 @@
   <meta name="theme-color" content="#4F46E5" />
 
   <!-- Content Security Policy -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; img-src 'self' data: https:; font-src 'self' data: https://cdn.jsdelivr.net; connect-src 'self' https: http://localhost:* http://127.0.0.1:* http://[::1]:*;">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; img-src 'self' data: https:; font-src 'self' data: https://cdn.jsdelivr.net; connect-src 'self';">
 
   <!-- Open Graph -->
   <meta property="og:title" content="智答 AI" />
@@ -79,6 +79,14 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
             <span>导出当前对话</span>
           </button>
+          <button id="data-management-btn" class="sidebar-footer__btn" aria-label="数据管理">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3"/></svg>
+            <span>数据管理</span>
+          </button>
+          <button id="prompt-templates-btn" class="sidebar-footer__btn" aria-label="提示词模板">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="14" y2="17"/></svg>
+            <span>提示词模板</span>
+          </button>
           <button id="shortcuts-btn" class="sidebar-footer__btn" aria-label="快捷键">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2" ry="2"/><path d="M6 8h.01"/><path d="M10 8h.01"/><path d="M14 8h.01"/><path d="M18 8h.01"/><path d="M8 12h.01"/><path d="M12 12h.01"/><path d="M16 12h.01"/><path d="M7 16h10"/></svg>
             <span>⌨️ 快捷键</span>
@@ -137,34 +145,59 @@
         <!-- Input Area -->
         <div class="input-area">
           <div class="input-area__inner">
-            <div class="system-prompt-indicator" aria-label="自定义系统提示词已启用">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
-              <span>自定义提示词</span>
-            </div>
-            <div id="attachment-preview" class="attachment-preview hidden"></div>
-            <div class="input-wrapper">
+            <div class="composer">
+              <div id="attachment-preview" class="attachment-preview hidden"></div>
               <textarea
                 id="chat-input"
-                class="input-wrapper__textarea"
+                class="composer__textarea"
                 placeholder="输入你的问题..."
                 rows="1"
                 aria-label="输入消息"
               ></textarea>
-              <div class="input-wrapper__actions">
-                <button id="upload-btn" class="upload-btn" aria-label="上传文件" title="上传文件">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
-                </button>
-                <input type="file" id="file-input" multiple hidden />
-                <button id="send-btn" class="send-btn" disabled aria-label="发送消息">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
-                </button>
+              <div class="composer__footer">
+                <div class="composer__left-tools" aria-label="请求能力">
+                  <label class="tool-toggle" title="使用 OpenAI Responses API 的网络搜索工具">
+                    <input type="checkbox" id="web-search-toggle" />
+                    <span class="tool-toggle__track" aria-hidden="true"></span>
+                    <span class="tool-toggle__label">网络搜索</span>
+                  </label>
+                  <label class="reasoning-control" title="当前模型不是深度思考模型，无法设置推理深度">
+                    <span class="reasoning-control__label">思考深度</span>
+                    <select id="reasoning-effort-select" aria-label="思考深度">
+                      <option value="low">低</option>
+                      <option value="medium">标准</option>
+                      <option value="high">高</option>
+                      <option value="xhigh">极高</option>
+                    </select>
+                  </label>
+                </div>
+                <div class="composer__right-tools" aria-label="输入工具">
+                  <button type="button" class="system-prompt-indicator" aria-label="自定义系统提示词已启用">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+                    <span>自定义提示词</span>
+                  </button>
+                  <button id="input-template-btn" class="upload-btn" aria-label="打开提示词模板" title="提示词模板">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M8.5 14a6 6 0 1 1 7 0c-.75.56-1.5 1.5-1.5 2.5h-4c0-1-.75-1.94-1.5-2.5z"/></svg>
+                  </button>
+                  <button id="upload-btn" class="upload-btn" aria-label="上传文件" title="上传文件">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+                  </button>
+                  <input type="file" id="file-input" multiple hidden />
                 <button id="stop-btn" class="stop-btn hidden" aria-label="停止生成">
-                  <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
-                  <span>停止生成</span>
+                  <span class="stop-btn__label">停止生成</span>
+                  <span class="stop-btn__icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+                  </span>
                 </button>
+                <button id="send-btn" class="send-btn" disabled aria-label="发送消息">
+                  <span class="send-btn__icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                  </span>
+                </button>
+                </div>
               </div>
+              <div class="composer__hint">Enter 发送，Shift+Enter 换行</div>
             </div>
-            <div class="input-hint">Enter 发送, Shift+Enter 换行</div>
           </div>
         </div>
       </section>
@@ -187,13 +220,13 @@
           <!-- API Configuration -->
           <div class="settings-group">
             <label class="settings-group__label" for="settings-api-base-url">API 地址</label>
-            <p id="settings-api-base-url-desc" class="settings-group__desc">浏览器可直接访问且允许 CORS 的 OpenAI 兼容接口基础 URL（例如 https://api.openai.com）</p>
+            <p id="settings-api-base-url-desc" class="settings-group__desc">OpenAI 兼容接口基础 URL（例如 https://api.openai.com）。浏览器只会提交到同源后端保存。</p>
             <input type="url" id="settings-api-base-url" placeholder="https://your-api-host.com" autocomplete="off" aria-describedby="settings-api-base-url-desc" />
           </div>
           <div class="settings-group">
             <label class="settings-group__label" for="settings-api-key">API 密钥</label>
-            <p id="settings-api-key-desc" class="settings-group__desc">用于身份验证的密钥。它会保存在浏览器本地，并随请求发送到你配置的 API 服务。</p>
-            <p class="settings-group__warning">请勿在公共或共享设备上保存密钥。建议使用低权限或有额度限制的密钥。</p>
+            <p id="settings-api-key-desc" class="settings-group__desc">用于服务端代理访问上游 API。保存成功后输入框会清空，浏览器不会持久化密钥。</p>
+            <p class="settings-group__warning">生产部署请使用 HTTPS，并为后端设置 ZHIDA_CONFIG_SECRET。</p>
             <div class="api-key-wrapper">
               <input type="password" id="settings-api-key" placeholder="sk-..." autocomplete="off" aria-describedby="settings-api-key-desc" />
               <button type="button" id="toggle-api-key-visibility" class="api-key-toggle" aria-label="显示/隐藏密钥">
@@ -203,8 +236,9 @@
           </div>
 
           <div class="settings-group">
-            <button type="button" id="fetch-models-btn" class="btn btn--secondary btn--full-width">获取模型列表</button>
-            <p id="fetch-models-desc" class="settings-group__desc" style="margin-top: 4px;">仅校验当前表单配置；保存 API 配置后会自动刷新模型列表</p>
+            <button type="button" id="fetch-models-btn" class="btn btn--secondary btn--full-width">保存配置并获取模型列表</button>
+            <p id="backend-status" class="settings-group__warning" hidden></p>
+            <p id="fetch-models-desc" class="settings-group__desc" style="margin-top: 4px;">配置会先加密保存到后端，再从同源代理刷新模型列表。</p>
           </div>
 
           <hr class="settings-divider" />
@@ -239,6 +273,72 @@
       <div class="modal__footer">
         <button class="btn btn--secondary modal__close">取消</button>
         <button id="settings-save-btn" class="btn btn--primary">保存设置</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Data Management Modal -->
+  <div id="data-management-modal" class="modal-overlay" aria-hidden="true" aria-modal="true" role="dialog" aria-labelledby="data-management-title">
+    <div class="modal modal--wide">
+      <div class="modal__header">
+        <h3 id="data-management-title" class="modal__title">数据管理</h3>
+        <button class="modal__close" aria-label="关闭">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="modal__body">
+        <div id="data-stats" class="data-stats" aria-live="polite"></div>
+        <div class="settings-form">
+          <div class="settings-group">
+            <button type="button" id="export-all-data-btn" class="btn btn--secondary btn--full-width">导出全部数据</button>
+          </div>
+          <div class="settings-group">
+            <input type="file" id="import-data-input" accept="application/json,.json" hidden />
+            <button type="button" id="import-data-btn" class="btn btn--secondary btn--full-width">导入备份 JSON</button>
+            <p class="settings-group__desc">导入采用合并模式；同 ID 对话以后导入文件为准。</p>
+          </div>
+          <hr class="settings-divider" />
+          <div class="settings-group">
+            <label class="settings-group__label" for="prune-conversation-limit">清理旧对话后最多保留</label>
+            <p id="prune-conversation-limit-desc" class="settings-group__desc">优先保留置顶对话，普通对话按最后更新时间从旧到新删除。</p>
+            <input type="number" id="prune-conversation-limit" min="0" max="1000" step="1" value="50" aria-describedby="prune-conversation-limit-desc" />
+          </div>
+          <div class="settings-group">
+            <button type="button" id="prune-conversations-btn" class="btn btn--danger btn--full-width">清理旧对话</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Prompt Templates Modal -->
+  <div id="prompt-templates-modal" class="modal-overlay" aria-hidden="true" aria-modal="true" role="dialog" aria-labelledby="prompt-templates-title">
+    <div class="modal modal--wide">
+      <div class="modal__header">
+        <h3 id="prompt-templates-title" class="modal__title">提示词模板</h3>
+        <button class="modal__close" aria-label="关闭">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="modal__body">
+        <div id="prompt-template-list" class="template-list"></div>
+        <hr class="settings-divider" />
+        <form id="prompt-template-form" class="settings-form">
+          <input type="hidden" id="prompt-template-id" />
+          <div class="settings-group">
+            <label class="settings-group__label" for="prompt-template-name">自定义模板名称</label>
+            <input type="text" id="prompt-template-name" placeholder="例如：日报整理" autocomplete="off" />
+          </div>
+          <div class="settings-group">
+            <label class="settings-group__label" for="prompt-template-content">模板内容</label>
+            <p id="prompt-template-content-desc" class="settings-group__desc">可以直接写占位文本，例如 {{text}}。点击模板只会插入输入框，不会自动发送。</p>
+            <textarea id="prompt-template-content" rows="5" placeholder="输入模板内容..." aria-describedby="prompt-template-content-desc"></textarea>
+          </div>
+          <div class="modal__footer modal__footer--inline">
+            <button type="button" id="prompt-template-reset-btn" class="btn btn--secondary">新建</button>
+            <button type="submit" class="btn btn--primary">保存模板</button>
+          </div>
+        </form>
       </div>
     </div>
   </div>

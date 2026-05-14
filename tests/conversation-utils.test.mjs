@@ -4,22 +4,37 @@ import assert from 'node:assert/strict';
 import {
   buildAssistantMessageFromBuffers,
   deriveConversationTitle,
+  filterConversations,
+  parseTagsInput,
+  pruneConversationsToLimit,
   parseThinkingContent,
   resolveConversationModel,
   sortConversationsByUpdatedAt,
 } from '../js/conversation-utils.js';
+import {
+  createBackupPayload,
+  mergeBackupIntoState,
+  parseBackupPayload,
+} from '../js/backup-utils.js';
+import {
+  BUILT_IN_PROMPT_TEMPLATES,
+  deleteCustomTemplate,
+  mergeTemplates,
+  upsertCustomTemplate,
+} from '../js/prompt-templates.js';
 
 test('sortConversationsByUpdatedAt sorts newest first without mutating input', () => {
   const conversations = [
     { id: 'older', updatedAt: 10, createdAt: 1 },
     { id: 'newer', updatedAt: 20, createdAt: 2 },
     { id: 'fallback-created', createdAt: 15 },
+    { id: 'pinned-old', updatedAt: 5, pinned: true },
   ];
 
   const sorted = sortConversationsByUpdatedAt(conversations);
 
-  assert.deepEqual(sorted.map((item) => item.id), ['newer', 'fallback-created', 'older']);
-  assert.deepEqual(conversations.map((item) => item.id), ['older', 'newer', 'fallback-created']);
+  assert.deepEqual(sorted.map((item) => item.id), ['pinned-old', 'newer', 'fallback-created', 'older']);
+  assert.deepEqual(conversations.map((item) => item.id), ['older', 'newer', 'fallback-created', 'pinned-old']);
 });
 
 test('deriveConversationTitle prefers trimmed text and falls back to attachments', () => {
@@ -72,7 +87,7 @@ test('buildAssistantMessageFromBuffers keeps thinking-only output and marks stop
   );
 });
 
-test('resolveConversationModel prefers the conversation model over current selection', () => {
+test('resolveConversationModel returns null instead of silently replacing missing models', () => {
   const models = [
     { id: 'alpha', name: 'Alpha' },
     { id: 'beta', name: 'Beta' },
@@ -83,7 +98,97 @@ test('resolveConversationModel prefers the conversation model over current selec
     { id: 'beta', name: 'Beta' }
   );
   assert.deepEqual(
-    resolveConversationModel(models, 'missing', models[0]),
-    { id: 'alpha', name: 'Alpha' }
+    resolveConversationModel(models, 'missing'),
+    null
   );
+});
+
+test('filterConversations searches title, messages, model names, tags, and exact #tag', () => {
+  const conversations = [
+    {
+      id: 'a',
+      title: '排查线上错误',
+      modelId: 'debug-model',
+      tags: ['工作', 'urgent'],
+      messages: [{ content: '数据库连接超时' }],
+    },
+    {
+      id: 'b',
+      title: '读书笔记',
+      modelId: 'study-model',
+      tags: ['学习'],
+      messages: [{ content: '深度学习章节' }],
+    },
+  ];
+  const models = [
+    { id: 'debug-model', name: 'Debug Assistant' },
+    { id: 'study-model', name: 'Study Helper' },
+  ];
+
+  assert.deepEqual(filterConversations(conversations, '数据库', models).map((item) => item.id), ['a']);
+  assert.deepEqual(filterConversations(conversations, 'Study Helper', models).map((item) => item.id), ['b']);
+  assert.deepEqual(filterConversations(conversations, 'urgent', models).map((item) => item.id), ['a']);
+  assert.deepEqual(filterConversations(conversations, '#学习', models).map((item) => item.id), ['b']);
+});
+
+test('parseTagsInput normalizes separators, hashes, and duplicates', () => {
+  assert.deepEqual(parseTagsInput(' #work, 学习；work  '), ['work', '学习']);
+});
+
+test('pruneConversationsToLimit keeps pinned conversations and removes oldest regular items', () => {
+  const result = pruneConversationsToLimit([
+    { id: 'pinned', pinned: true, updatedAt: 1 },
+    { id: 'new', updatedAt: 30 },
+    { id: 'middle', updatedAt: 20 },
+    { id: 'old', updatedAt: 10 },
+  ], 2);
+
+  assert.deepEqual(result.kept.map((item) => item.id), ['pinned', 'new']);
+  assert.deepEqual(result.removed.map((item) => item.id), ['middle', 'old']);
+});
+
+test('backup payload rejects invalid versions and merges conversations by imported id', () => {
+  assert.throws(() => parseBackupPayload('{bad'), /合法 JSON/);
+  assert.throws(() => parseBackupPayload({ version: 999 }), /不支持/);
+
+  const backup = createBackupPayload({
+    conversations: [{ id: 'same', title: 'imported', messages: [], updatedAt: 20 }],
+    activeConversationId: 'same',
+    selectedModelId: 'model-b',
+    models: [{ id: 'model-b' }],
+    settings: { apiBaseUrl: 'https://api.example.com' },
+    promptTemplates: [{ id: 'tpl', name: '模板', content: '内容' }],
+  });
+
+  const merged = mergeBackupIntoState({
+    conversations: [
+      { id: 'same', title: 'current', messages: [], updatedAt: 10 },
+      { id: 'other', title: 'other', messages: [], updatedAt: 5 },
+    ],
+    activeConversationId: 'other',
+    selectedModelId: 'model-a',
+    models: [{ id: 'model-a' }],
+    settings: { apiBaseUrl: 'https://old.example.com', apiKey: 'local-key', requestMode: 'direct' },
+    promptTemplates: [],
+  }, parseBackupPayload(backup));
+
+  assert.equal(merged.conversations.find((item) => item.id === 'same').title, 'imported');
+  assert.equal(merged.activeConversationId, 'same');
+  assert.equal(merged.settings.apiBaseUrl, 'https://api.example.com');
+  assert.equal(merged.settings.requestMode, undefined);
+  assert.equal(merged.settings.apiKey, undefined);
+  assert.equal(merged.promptTemplates.length, 1);
+});
+
+test('prompt templates keep built-ins and support custom create update delete', () => {
+  const created = upsertCustomTemplate([], { id: 'custom', name: '自定义', content: '内容 {{text}}' });
+  assert.equal(created.length, 1);
+  assert.equal(mergeTemplates(created).length, BUILT_IN_PROMPT_TEMPLATES.length + 1);
+
+  const updated = upsertCustomTemplate(created, { id: 'custom', name: '更新', content: '新内容' });
+  assert.equal(updated[0].name, '更新');
+
+  const deleted = deleteCustomTemplate(updated, 'custom');
+  assert.deepEqual(deleted, []);
+  assert.throws(() => upsertCustomTemplate([], { name: '', content: '' }), /不能为空/);
 });

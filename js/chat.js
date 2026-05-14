@@ -3,14 +3,20 @@
  */
 
 import { state } from './state.js';
-import { generateId, copyToClipboard } from './utils.js';
+import { formatDateTimeBJT, generateId, copyToClipboard } from './utils.js';
 import { TITLE_MAX_LENGTH, DEFAULT_SYSTEM_PROMPT } from './config.js';
 import {
   buildAssistantMessageFromBuffers,
   deriveConversationTitle,
-  resolveConversationModel,
+  parseTagsInput,
 } from './conversation-utils.js';
-import { streamChatCompletion } from './api.js';
+import { getRequestRouteDecision, streamModelResponse } from './api.js';
+import {
+  buildLongTextPromptBlock,
+  formatLongTextDisplay,
+  getLongTextContent,
+  sanitizeGeneratedMdAttachment,
+} from './long-text.js';
 import {
   saveConversation,
   saveConversations,
@@ -29,6 +35,7 @@ import {
   renderConversationList,
   renderModelDropdown,
   updateModelTrigger,
+  updateComposerCapabilityControls,
   updateSystemPromptIndicator,
 } from './ui.js';
 
@@ -47,6 +54,8 @@ export function createNewConversation() {
     messages: [],
     createdAt: Date.now(),
     updatedAt: Date.now(),
+    pinned: false,
+    tags: [],
   };
 
   if (!saveConversation(conv)) {
@@ -81,13 +90,13 @@ export function switchConversation(conversationId) {
   const conv = state.activeConversation;
   if (conv) {
     state.systemPrompt = conv.systemPrompt ?? DEFAULT_SYSTEM_PROMPT;
-    const model = resolveConversationModel(state.models, conv.modelId, state.selectedModel);
-    state.selectedModelId = model.id;
+    state.selectedModelId = conv.modelId;
     saveSelectedModel();
   }
 
   renderModelDropdown();
   updateModelTrigger();
+  updateComposerCapabilityControls();
   renderMessages();
   renderConversationList();
   updateSystemPromptIndicator();
@@ -146,6 +155,39 @@ export function renameConversation(conversationId, newTitle) {
   showToast('对话已重命名', 'success');
 }
 
+export function toggleConversationPinned(conversationId) {
+  const conv = state.conversations.find((c) => c.id === conversationId);
+  if (!conv) return;
+
+  const nextConv = {
+    ...conv,
+    pinned: !conv.pinned,
+    updatedAt: Date.now(),
+  };
+  if (!saveConversation(nextConv)) {
+    showToast('置顶状态保存失败，请清理本地存储后重试', 'error');
+    return;
+  }
+  renderConversationList();
+}
+
+export function updateConversationTags(conversationId, tagInput) {
+  const conv = state.conversations.find((c) => c.id === conversationId);
+  if (!conv) return;
+
+  const nextConv = {
+    ...conv,
+    tags: parseTagsInput(tagInput),
+    updatedAt: Date.now(),
+  };
+  if (!saveConversation(nextConv)) {
+    showToast('标签保存失败，请清理本地存储后重试', 'error');
+    return;
+  }
+  renderConversationList();
+  showToast('标签已保存', 'success');
+}
+
 /**
  * Send a user message and stream the AI response.
  * @param {string} text - User input text
@@ -163,6 +205,7 @@ export async function sendMessage(text, attachments = []) {
 
   const conv = state.activeConversation;
   if (!conv) return;
+  if (!canUseSelectedModelForRequest()) return;
 
   // Generate unique request ID to prevent race conditions
   const requestId = generateId();
@@ -171,6 +214,7 @@ export async function sendMessage(text, attachments = []) {
   // Build display content: user text + text file contents + image markers
   let displayContent = trimmed;
   const imageDataUrls = [];
+  const messageAttachments = [];
 
   for (const att of attachments) {
     if (att.type === 'text') {
@@ -178,6 +222,12 @@ export async function sendMessage(text, attachments = []) {
     } else if (att.type === 'image') {
       displayContent += `\n\n📎 [图片: ${att.name}]`;
       imageDataUrls.push(att.dataUrl);
+    } else if (att.type === 'generated-md') {
+      const normalized = sanitizeGeneratedMdAttachment(att);
+      if (normalized) {
+        displayContent += `\n\n${formatLongTextDisplay(normalized)}`;
+        messageAttachments.push(normalized);
+      }
     }
   }
 
@@ -186,6 +236,8 @@ export async function sendMessage(text, attachments = []) {
     id: generateId(),
     role: 'user',
     content: displayContent,
+    promptText: trimmed,
+    attachments: messageAttachments.length > 0 ? messageAttachments : undefined,
     images: imageDataUrls.length > 0 ? imageDataUrls : undefined,
     timestamp: Date.now(),
   };
@@ -228,15 +280,16 @@ export async function sendMessage(text, attachments = []) {
   showStopButton(true);
 
   // Build messages array for API
-  const apiMessages = buildAPIMessages(requestConv);
+  const apiMessages = await buildAPIMessages(requestConv);
 
   // Create streaming UI
   const streaming = createStreamingMessage();
   let contentBuffer = '';
   let reasoningBuffer = '';
+  let citations = [];
   const isThinkingModel = state.selectedModel.type === 'thinking';
 
-  await streamChatCompletion(apiMessages, {
+  await streamModelResponse(apiMessages, {
     onToken(token) {
       // Ignore if this is not the current request
       if (!isCurrentStreamRequest(requestId)) return;
@@ -251,11 +304,21 @@ export async function sendMessage(text, attachments = []) {
       updateStreamingBuffers(streaming, contentBuffer, reasoningBuffer, isThinkingModel);
     },
 
+    onStatus(status) {
+      if (!isCurrentStreamRequest(requestId)) return;
+      streaming.updateStatus?.(status);
+    },
+
+    onCitations(nextCitations) {
+      if (!isCurrentStreamRequest(requestId)) return;
+      citations = nextCitations;
+    },
+
     onDone() {
       finalizeStreamingResult({
         conv: requestConv,
         streaming,
-        contentBuffer,
+        contentBuffer: appendCitationsToContent(contentBuffer, citations),
         reasoningBuffer,
         textarea,
         wasStopped: false,
@@ -269,7 +332,7 @@ export async function sendMessage(text, attachments = []) {
       finalizeStreamingResult({
         conv: requestConv,
         streaming,
-        contentBuffer,
+        contentBuffer: appendCitationsToContent(contentBuffer, citations),
         reasoningBuffer,
         textarea,
         wasStopped: true,
@@ -299,6 +362,7 @@ export async function sendMessage(text, attachments = []) {
 export async function regenerateLastResponse() {
   const conv = state.activeConversation;
   if (!conv || state.isStreaming) return;
+  if (!canUseSelectedModelForRequest()) return;
 
   // Remove the last AI/error message
   const nextMessages = [...conv.messages];
@@ -334,14 +398,15 @@ export async function regenerateLastResponse() {
   showStopButton(true);
   updateSendButton(false);
 
-  const apiMessages = buildAPIMessages(requestConv);
+  const apiMessages = await buildAPIMessages(requestConv);
   const streaming = createStreamingMessage();
   let contentBuffer = '';
   let reasoningBuffer = '';
+  let citations = [];
   const isThinkingModel = state.selectedModel.type === 'thinking';
   const textarea = document.querySelector('#chat-input');
 
-  await streamChatCompletion(apiMessages, {
+  await streamModelResponse(apiMessages, {
     onToken(token) {
       if (!isCurrentStreamRequest(requestId)) return;
       contentBuffer += token;
@@ -354,11 +419,21 @@ export async function regenerateLastResponse() {
       updateStreamingBuffers(streaming, contentBuffer, reasoningBuffer, isThinkingModel);
     },
 
+    onStatus(status) {
+      if (!isCurrentStreamRequest(requestId)) return;
+      streaming.updateStatus?.(status);
+    },
+
+    onCitations(nextCitations) {
+      if (!isCurrentStreamRequest(requestId)) return;
+      citations = nextCitations;
+    },
+
     onDone() {
       finalizeStreamingResult({
         conv: requestConv,
         streaming,
-        contentBuffer,
+        contentBuffer: appendCitationsToContent(contentBuffer, citations),
         reasoningBuffer,
         textarea,
         wasStopped: false,
@@ -372,7 +447,7 @@ export async function regenerateLastResponse() {
       finalizeStreamingResult({
         conv: requestConv,
         streaming,
-        contentBuffer,
+        contentBuffer: appendCitationsToContent(contentBuffer, citations),
         reasoningBuffer,
         textarea,
         wasStopped: true,
@@ -401,7 +476,7 @@ export async function regenerateLastResponse() {
  * @param {Object} conv
  * @returns {Array<{role: string, content: string|Array}>}
  */
-function buildAPIMessages(conv) {
+async function buildAPIMessages(conv) {
   const messages = [];
 
   // System prompt
@@ -417,9 +492,10 @@ function buildAPIMessages(conv) {
         for (const dataUrl of msg.images) {
           parts.push({ type: 'image_url', image_url: { url: dataUrl } });
         }
+        parts[0].text = await buildUserApiText(msg);
         messages.push({ role: 'user', content: parts });
       } else {
-        messages.push({ role: 'user', content: msg.content });
+        messages.push({ role: 'user', content: await buildUserApiText(msg) });
       }
     } else if (msg.role === 'ai') {
       messages.push({ role: 'assistant', content: msg.content });
@@ -428,6 +504,44 @@ function buildAPIMessages(conv) {
   }
 
   return messages;
+}
+
+async function buildUserApiText(msg) {
+  const attachments = (msg.attachments || [])
+    .map(sanitizeGeneratedMdAttachment)
+    .filter(Boolean);
+  if (attachments.length === 0) return msg.content;
+
+  const parts = [msg.promptText || ''];
+  for (const att of attachments) {
+    const content = att.mode === 'full'
+      ? await getLongTextContent(att.id).catch(() => '')
+      : '';
+    parts.push(buildLongTextPromptBlock(att, content));
+  }
+  return parts.filter(Boolean).join('\n\n');
+}
+
+function appendCitationsToContent(content, citations) {
+  if (!Array.isArray(citations) || citations.length === 0) return content;
+  const lines = ['\n\n---\n\n### 来源'];
+  citations.forEach((citation, index) => {
+    const title = citation.title || citation.url;
+    lines.push(`${index + 1}. [${title}](${citation.url})`);
+  });
+  return `${content || ''}${lines.join('\n')}`;
+}
+
+function canUseSelectedModelForRequest() {
+  const decision = getRequestRouteDecision({
+    model: state.selectedModel,
+    webSearchEnabled: state.webSearchEnabled,
+    reasoningEffort: state.reasoningEffort,
+    apiBaseUrl: state.apiBaseUrl,
+  });
+  if (decision.route !== 'blocked') return true;
+  showToast(decision.reason, 'error', 3000);
+  return false;
 }
 
 /**
@@ -620,11 +734,13 @@ export function exportConversation() {
   };
   let md = `# ${conv.title}\n\n`;
   md += `- **模型**: ${model.name}\n`;
-  md += `- **创建时间**: ${new Date(conv.createdAt).toLocaleString('zh-CN')}\n`;
+  md += `- **创建时间 (BJT)**: ${formatDateTimeBJT(conv.createdAt)}\n`;
+  md += `- **置顶**: ${conv.pinned ? '是' : '否'}\n`;
+  md += `- **标签**: ${(conv.tags ?? []).length ? conv.tags.map((tag) => `#${tag}`).join(' ') : '无'}\n`;
   md += `- **消息数**: ${conv.messages.length}\n\n---\n\n`;
 
   for (const msg of conv.messages) {
-    const time = new Date(msg.timestamp).toLocaleString('zh-CN');
+    const time = formatDateTimeBJT(msg.timestamp);
     if (msg.role === 'user') {
       md += `## 👤 用户 (${time})\n\n${msg.content}\n\n`;
     } else if (msg.role === 'ai') {

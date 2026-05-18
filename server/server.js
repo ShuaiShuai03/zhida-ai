@@ -10,7 +10,12 @@ import { fileURLToPath } from 'node:url';
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const ROOT_DIR = resolve(__dirname, '..');
 const PORT = Number.parseInt(process.env.ZHIDA_PORT || '3000', 10);
-const CONFIG_PATH = resolve(process.env.ZHIDA_CONFIG_PATH || join(__dirname, 'data/config.enc.json'));
+const DOCKER_CONFIG_PATH = '/data/config.enc.json';
+const DEFAULT_CONFIG_PATH = join(ROOT_DIR, '.zhida-data/config.enc.json');
+const LEGACY_CONFIG_PATH = join(__dirname, 'data/config.enc.json');
+const LEGACY_DOCKER_CONFIG_PATH = resolve(process.env.LEGACY_DOCKER_CONFIG_PATH || LEGACY_CONFIG_PATH);
+const CONFIG_PATH_USES_DEFAULT = !process.env.ZHIDA_CONFIG_PATH;
+const CONFIG_PATH = resolve(process.env.ZHIDA_CONFIG_PATH || DEFAULT_CONFIG_PATH);
 const CONFIG_SECRET = process.env.ZHIDA_CONFIG_SECRET || '';
 const PROXY_TIMEOUT_MS = Number.parseInt(process.env.ZHIDA_PROXY_TIMEOUT_MS || '120000', 10);
 const MAX_PROXY_BODY_BYTES = Number.parseInt(process.env.ZHIDA_PROXY_MAX_BODY_BYTES || String(10 * 1024 * 1024), 10);
@@ -135,13 +140,42 @@ function decryptApiKey(config) {
   ]).toString('utf8');
 }
 
+function parseStoredConfig(raw) {
+  const parsed = JSON.parse(raw);
+  if (!parsed || parsed.version !== CONFIG_VERSION || !parsed.apiBaseUrl) return null;
+  if (!parsed.ciphertext || !parsed.iv || !parsed.authTag) return null;
+  return parsed;
+}
+
+function shouldReadLegacyDockerConfig() {
+  if (!CONFIG_PATH) return false;
+  if (CONFIG_PATH === DOCKER_CONFIG_PATH) return true;
+  return Boolean(process.env.LEGACY_DOCKER_CONFIG_PATH);
+}
+
+async function readStoredConfigFile(configPath) {
+  return parseStoredConfig(await readFile(configPath, 'utf8'));
+}
+
 async function readStoredConfig() {
   try {
-    const raw = await readFile(CONFIG_PATH, 'utf8');
-    const parsed = JSON.parse(raw);
-    if (!parsed || parsed.version !== CONFIG_VERSION || !parsed.apiBaseUrl) return null;
-    if (!parsed.ciphertext || !parsed.iv || !parsed.authTag) return null;
-    return parsed;
+    return await readStoredConfigFile(CONFIG_PATH);
+  } catch (err) {
+    if (err?.code !== 'ENOENT') throw err;
+  }
+
+  if (!CONFIG_PATH_USES_DEFAULT) {
+    if (!shouldReadLegacyDockerConfig()) return null;
+    try {
+      return await readStoredConfigFile(LEGACY_DOCKER_CONFIG_PATH);
+    } catch (err) {
+      if (err?.code === 'ENOENT') return null;
+      throw err;
+    }
+  }
+
+  try {
+    return await readStoredConfigFile(LEGACY_CONFIG_PATH);
   } catch (err) {
     if (err?.code === 'ENOENT') return null;
     throw err;
@@ -371,7 +405,12 @@ async function resolveStaticPath(urlPath) {
     return null;
   }
 
-  const relativePath = decoded === '/' ? 'index.html' : decoded.replace(/^\/+/, '');
+  const pathname = decoded === '/' ? '/index.html' : `/${decoded.replace(/^\/+/, '')}`;
+  if (!isAllowedStaticPath(pathname)) {
+    return null;
+  }
+
+  const relativePath = pathname.replace(/^\/+/, '');
   const candidate = normalize(join(ROOT_DIR, relativePath));
   if (candidate !== ROOT_DIR && !candidate.startsWith(ROOT_DIR + sep)) {
     return null;
@@ -382,9 +421,17 @@ async function resolveStaticPath(urlPath) {
     if (info.isDirectory()) return join(candidate, 'index.html');
     if (info.isFile()) return candidate;
   } catch {
-    return join(ROOT_DIR, 'index.html');
+    return null;
   }
   return null;
+}
+
+function isAllowedStaticPath(pathname) {
+  return pathname === '/index.html'
+    || pathname.startsWith('/css/')
+    || pathname.startsWith('/js/')
+    || pathname.startsWith('/assets/')
+    || pathname === '/tests/smoke.html';
 }
 
 async function handleStatic(req, res) {

@@ -1,10 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
+import { createCipheriv, createHash, randomBytes } from 'node:crypto';
 import { once } from 'node:events';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { setTimeout as delay } from 'node:timers/promises';
 
@@ -41,6 +43,27 @@ function startProxy(env) {
 
 function closeChild(child) {
   if (!child.killed) child.kill();
+}
+
+function makeEncryptedConfigPayload(secret, { apiBaseUrl, apiKey }) {
+  const key = createHash('sha256').update(String(secret)).digest();
+  const iv = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', key, iv);
+  const ciphertext = Buffer.concat([cipher.update(String(apiKey || ''), 'utf8'), cipher.final()]);
+  const authTag = cipher.getAuthTag();
+  return {
+    version: 1,
+    apiBaseUrl: String(apiBaseUrl || ''),
+    ciphertext: ciphertext.toString('base64'),
+    iv: iv.toString('base64'),
+    authTag: authTag.toString('base64'),
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+async function writeEncryptedConfig(filePath, secret, apiBaseUrl, apiKey = 'legacy-secret') {
+  const payload = makeEncryptedConfigPayload(secret, { apiBaseUrl, apiKey });
+  await writeFile(filePath, `${JSON.stringify(payload, null, 2)}\n`, { mode: 0o600 });
 }
 
 async function startMockApi() {
@@ -283,6 +306,137 @@ test('encrypted config status omits key and proxy uses only server-side authoriz
   }
 });
 
+test('reads legacy server/data config when no explicit ZHIDA_CONFIG_PATH is set', async () => {
+  const defaultConfigPath = join(process.cwd(), '.zhida-data/config.enc.json');
+  const legacyConfigPath = join(process.cwd(), 'server/data/config.enc.json');
+  const originalDefaultConfig = existsSync(defaultConfigPath) ? await readFile(defaultConfigPath, 'utf8') : null;
+  const originalSecretConfig = existsSync(legacyConfigPath) ? await readFile(legacyConfigPath, 'utf8') : null;
+  const secret = 'legacy-test-secret';
+  const baseUrl = `http://127.0.0.1:11434`;
+  const port = await freePort();
+  await rm(defaultConfigPath, { force: true });
+  await mkdir(dirname(legacyConfigPath), { recursive: true });
+  await writeEncryptedConfig(legacyConfigPath, secret, baseUrl);
+
+  const proxy = startProxy({
+    ZHIDA_PORT: String(port),
+    ZHIDA_CONFIG_SECRET: secret,
+  });
+
+  try {
+    await waitForUrl(`http://127.0.0.1:${port}/index.html`);
+    const status = await fetch(`http://127.0.0.1:${port}/api/config/status`);
+    assert.equal(status.status, 200);
+    const statusJson = await status.json();
+    assert.equal(statusJson.configured, true);
+    assert.equal(statusJson.apiBaseUrl, baseUrl);
+  } finally {
+    closeChild(proxy);
+    if (originalDefaultConfig === null) {
+      await rm(defaultConfigPath, { force: true });
+    } else {
+      await mkdir(dirname(defaultConfigPath), { recursive: true });
+      await writeFile(defaultConfigPath, originalDefaultConfig);
+    }
+    if (originalSecretConfig === null) {
+      await rm(legacyConfigPath, { force: true });
+    } else {
+      await writeFile(legacyConfigPath, originalSecretConfig);
+    }
+  }
+});
+
+test('default config saves to .zhida-data and does not rewrite legacy config', async () => {
+  const defaultConfigPath = join(process.cwd(), '.zhida-data/config.enc.json');
+  const legacyConfigPath = join(process.cwd(), 'server/data/config.enc.json');
+  const originalDefaultConfig = existsSync(defaultConfigPath) ? await readFile(defaultConfigPath, 'utf8') : null;
+  const originalLegacyConfig = existsSync(legacyConfigPath) ? await readFile(legacyConfigPath, 'utf8') : null;
+  const secret = 'default-write-secret';
+  const legacyBaseUrl = 'http://127.0.0.1:11434';
+  const nextApiBaseUrl = 'http://127.0.0.1:11435';
+  const port = await freePort();
+
+  await rm(defaultConfigPath, { force: true });
+  await mkdir(dirname(legacyConfigPath), { recursive: true });
+  await writeEncryptedConfig(legacyConfigPath, secret, legacyBaseUrl);
+
+  const proxy = startProxy({
+    ZHIDA_PORT: String(port),
+    ZHIDA_CONFIG_SECRET: secret,
+  });
+
+  try {
+    await waitForUrl(`http://127.0.0.1:${port}/index.html`);
+
+    const saved = await saveConfig(port, nextApiBaseUrl);
+    assert.equal(saved.status, 200);
+
+    const defaultStored = JSON.parse(await readFile(defaultConfigPath, 'utf8'));
+    assert.equal(defaultStored.apiBaseUrl, nextApiBaseUrl);
+    const legacyStored = JSON.parse(await readFile(legacyConfigPath, 'utf8'));
+    assert.equal(legacyStored.apiBaseUrl, legacyBaseUrl);
+  } finally {
+    closeChild(proxy);
+    if (originalDefaultConfig === null) {
+      await rm(defaultConfigPath, { force: true });
+    } else {
+      await mkdir(dirname(defaultConfigPath), { recursive: true });
+      await writeFile(defaultConfigPath, originalDefaultConfig);
+    }
+    if (originalLegacyConfig === null) {
+      await rm(legacyConfigPath, { force: true });
+    } else {
+      await mkdir(dirname(legacyConfigPath), { recursive: true });
+      await writeFile(legacyConfigPath, originalLegacyConfig);
+    }
+  }
+});
+
+test('reads docker legacy config path when explicit config path is missing, but saves to explicit path', async () => {
+  const port = await freePort();
+  const explicitConfigDir = await mkdtemp(join(tmpdir(), 'zhida-explicit-config-'));
+  const explicitConfigPath = join(explicitConfigDir, 'config.enc.json');
+  const legacyDockerDir = await mkdtemp(join(tmpdir(), 'zhida-legacy-docker-'));
+  const legacyDockerConfigPath = join(legacyDockerDir, 'server/data/config.enc.json');
+  await mkdir(dirname(legacyDockerConfigPath), { recursive: true });
+  const secret = 'legacy-docker-secret';
+  const baseUrl = `http://127.0.0.1:11434`;
+  const nextApiBaseUrl = `http://127.0.0.1:11435`;
+
+  await mkdir(legacyDockerDir, { recursive: true });
+  await writeEncryptedConfig(legacyDockerConfigPath, secret, baseUrl);
+
+  const proxy = startProxy({
+    ZHIDA_PORT: String(port),
+    ZHIDA_CONFIG_SECRET: secret,
+    ZHIDA_CONFIG_PATH: explicitConfigPath,
+    LEGACY_DOCKER_CONFIG_PATH: legacyDockerConfigPath,
+  });
+
+  try {
+    await waitForUrl(`http://127.0.0.1:${port}/index.html`);
+
+    const initialStatus = await fetch(`http://127.0.0.1:${port}/api/config/status`);
+    assert.equal(initialStatus.status, 200);
+    const initialStatusJson = await initialStatus.json();
+    assert.equal(initialStatusJson.configured, true);
+    assert.equal(initialStatusJson.apiBaseUrl, baseUrl);
+
+    const saved = await saveConfig(port, nextApiBaseUrl);
+    assert.equal(saved.status, 200);
+
+    const explicitStored = JSON.parse(await readFile(explicitConfigPath, 'utf8'));
+    assert.equal(explicitStored.apiBaseUrl, nextApiBaseUrl);
+    const legacyStored = JSON.parse(await readFile(legacyDockerConfigPath, 'utf8'));
+    assert.equal(legacyStored.apiBaseUrl, baseUrl);
+    assert.equal(legacyStored.apiBaseUrl !== explicitStored.apiBaseUrl, true);
+  } finally {
+    closeChild(proxy);
+    await rm(explicitConfigDir, { recursive: true, force: true });
+    await rm(legacyDockerDir, { recursive: true, force: true });
+  }
+});
+
 test('api base url accepts a trailing v1 without duplicating upstream paths', async () => {
   const mock = await startMockApi();
   const port = await freePort();
@@ -344,5 +498,68 @@ test('upstream errors are redacted before returning to the browser', async () =>
     closeChild(proxy);
     mock.server.close();
     await rm(configDir, { recursive: true, force: true });
+  }
+});
+
+test('static server only exposes browser app assets and blocks backend internals', async () => {
+  const port = await freePort();
+  const configDir = await mkdtemp(join(tmpdir(), 'zhida-config-test-'));
+  const localDataDir = join(process.cwd(), 'server/data');
+  const createdLocalDataDir = !existsSync(localDataDir);
+  const localConfigPath = join(localDataDir, `static-leak-test-${process.pid}.enc.json`);
+  const proxy = startProxy({
+    ZHIDA_PORT: String(port),
+    ZHIDA_CONFIG_SECRET: 'test-secret',
+    ZHIDA_CONFIG_PATH: join(configDir, 'config.enc.json'),
+  });
+
+  try {
+    await mkdir(localDataDir, { recursive: true });
+    await writeFile(localConfigPath, '{"ciphertext":"leaked-test-secret"}\n');
+    await waitForUrl(`http://127.0.0.1:${port}/index.html`);
+
+    const index = await fetch(`http://127.0.0.1:${port}/index.html`);
+    assert.equal(index.status, 200);
+    assert.match(index.headers.get('content-type') ?? '', /text\/html/);
+
+    const appJs = await fetch(`http://127.0.0.1:${port}/js/app.js`);
+    assert.equal(appJs.status, 200);
+    assert.match(appJs.headers.get('content-type') ?? '', /javascript/);
+
+    const backendSource = await fetch(`http://127.0.0.1:${port}/server/server.js`);
+    assert.equal(backendSource.status, 404);
+
+    const encryptedConfig = await fetch(
+      `http://127.0.0.1:${port}/server/data/${localConfigPath.split('/').pop()}`
+    );
+    assert.equal(encryptedConfig.status, 404);
+    assert.doesNotMatch(await encryptedConfig.text(), /leaked-test-secret/);
+
+    const blockedPaths = [
+      '/server',
+      '/server/',
+      '/scripts/start.sh',
+      '/.git/config',
+      '/css/not-found.css',
+      '/js/not-found.js',
+      '/assets/not-found.svg',
+      '/tests/not-found.html',
+      '/%2e%2e/server/server.js',
+      '/%2f%2e%2fserver/server.js',
+      '/%2e%2e%2fserver/data/config.enc.json',
+      '/%252e%252e%252fserver%252fserver.js',
+      '/%2f%2e%2e%2fserver%2fdata%2fconfig.enc.json',
+    ];
+    for (const path of blockedPaths) {
+      const response = await fetch(`http://127.0.0.1:${port}${path}`);
+      assert.equal(response.status, 404, `${path} should not be served`);
+    }
+  } finally {
+    closeChild(proxy);
+    await rm(configDir, { recursive: true, force: true });
+    await rm(localConfigPath, { force: true });
+    if (createdLocalDataDir) {
+      await rm(localDataDir, { recursive: true, force: true });
+    }
   }
 });

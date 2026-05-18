@@ -13,7 +13,7 @@
 1. 生产部署必须设置足够长且随机的 `ZHIDA_CONFIG_SECRET`。
 2. 请使用 HTTPS 部署，避免 API 配置提交过程被中间人观察。
 3. 服务器进程权限和 `ZHIDA_CONFIG_SECRET` 属于信任边界；拥有二者的人可以解密本地配置文件。
-4. 不要提交 `server/data/config.enc.json`、`.env` 或任何包含密钥的本地配置。
+4. 不要提交 `.zhida-data/config.enc.json`、`server/data/*.enc.json`、`.env` 或任何包含密钥的本地配置。Docker 部署的配置卷默认挂载到 `/data/config.enc.json`；当显式路径缺失时服务会兼容读取旧的 `server/data/config.enc.json`（或 `LEGACY_DOCKER_CONFIG_PATH`），但不会回写该旧路径。
 5. 如果你的 API 可能返回不可信内容，请自行评估风险。
 
 ## 报告漏洞

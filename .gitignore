@@ -20,6 +20,7 @@ yarn-error.log*
 .env.local
 .env.*.local
 server/data/
+.zhida-data/
 *.enc.json
 
 # Build output (if ever added)

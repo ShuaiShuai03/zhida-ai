@@ -39,15 +39,27 @@ if (-not $env:ZHIDA_CONFIG_SECRET) {
     exit 1
 }
 
-if (Get-Command node -ErrorAction SilentlyContinue) {
-    Write-Host "使用 Node 后端代理启动..." -ForegroundColor Yellow
-    Push-Location $ProjectDir
-    $env:ZHIDA_PORT = "$Port"
-    node server/server.js
-    Pop-Location
-}
-else {
+if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
     Write-Host "错误: 未找到 Node.js。" -ForegroundColor Red
-    Write-Host "请安装 Node.js 18 或更高版本: https://nodejs.org/"
+    Write-Host "请安装 Node.js 20+: https://nodejs.org/"
     exit 1
 }
+
+$nodeVersion = (& node -v)
+if ($nodeVersion -notmatch '^v([0-9]+)\.') {
+    Write-Host "错误: 无法解析当前 Node.js 版本: $nodeVersion" -ForegroundColor Red
+    exit 1
+}
+$nodeMajor = [int]$Matches[1]
+if ($nodeMajor -lt 20) {
+    Write-Host "错误: 当前 Node.js 版本为 $nodeVersion，不符合要求。" -ForegroundColor Red
+    Write-Host "本项目要求 Node.js 20+。" -ForegroundColor Red
+    exit 1
+}
+
+Write-Host "检测到 Node.js 版本: $nodeVersion" -ForegroundColor Green
+Write-Host "使用 Node 后端代理启动..." -ForegroundColor Yellow
+Push-Location $ProjectDir
+$env:ZHIDA_PORT = "$Port"
+node server/server.js
+Pop-Location

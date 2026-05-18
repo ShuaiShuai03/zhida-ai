@@ -52,7 +52,7 @@ node server/server.js
 ZHIDA_CONFIG_SECRET="change-this-to-a-long-random-secret" bash scripts/start.sh 3000
 ```
 
-打开 `http://localhost:3000`，点击右上角 **设置**，填入 API 地址和密钥，然后点击 **保存配置并获取模型列表**。API 地址可以填写 `https://api.openai.com` 或 `https://api.openai.com/v1`；后端会统一归一化，避免重复拼接 `/v1`。后端会将配置加密保存到 `server/data/config.enc.json`，随后代理会转发：
+打开 `http://localhost:3000`，点击右上角 **设置**，填入 API 地址和密钥，然后点击 **保存配置并获取模型列表**。API 地址可以填写 `https://api.openai.com` 或 `https://api.openai.com/v1`；后端会统一归一化，避免重复拼接 `/v1`。本地 Node 运行时，后端默认会将配置加密保存到 `.zhida-data/config.enc.json`，该路径不会被浏览器静态访问；旧版 `server/data/config.enc.json` 会被只读兼容读取。若显式使用 `ZHIDA_CONFIG_PATH=/data/config.enc.json` 且该文件不存在，服务会先尝试从旧的 `/app/server/data/config.enc.json`（或 `LEGACY_DOCKER_CONFIG_PATH`）读取；保存时仍会写入 `/data/config.enc.json`。Docker 后端代理会保存到 `/data/config.enc.json`。随后代理会转发：
 
 | 浏览器请求 | 上游请求 |
 |------------|----------|
@@ -68,10 +68,11 @@ ZHIDA_CONFIG_SECRET="change-this-to-a-long-random-secret" bash scripts/start.sh 
 | 变量 | 说明 | 默认 |
 |------|------|------|
 | `ZHIDA_CONFIG_SECRET` | 加密 API 密钥的服务端密钥，必须设置 | 必填 |
-| `ZHIDA_CONFIG_PATH` | 加密配置文件路径 | `server/data/config.enc.json` |
+| `ZHIDA_CONFIG_PATH` | 加密配置文件路径 | `.zhida-data/config.enc.json` |
+| `LEGACY_DOCKER_CONFIG_PATH` | Docker 升级兼容的只读配置路径（可选） | `/app/server/data/config.enc.json` |
 | `ZHIDA_PORT` | 本地监听端口 | `3000` |
-| `ZHIDA_PROXY_TIMEOUT_MS` | 代理请求超时 | `120000` |
-| `ZHIDA_PROXY_MAX_BODY_BYTES` | 单次代理请求体上限 | `10485760` |
+| `ZHIDA_PROXY_TIMEOUT_MS` | 代理请求超时（毫秒） | `120000` |
+| `ZHIDA_PROXY_MAX_BODY_BYTES` | 单次代理请求体上限（字节） | `10485760` |
 
 ### 方式二：Docker 后端代理
 
@@ -83,7 +84,7 @@ ZHIDA_CONFIG_SECRET="change-this-to-a-long-random-secret" \
 docker compose -f docker-compose.proxy.yml up -d
 ```
 
-访问 `http://localhost:3000`，在设置中填写 API 地址和密钥。`docker-compose.proxy.yml` 使用命名卷保存加密配置文件。
+访问 `http://localhost:3000`，在设置中填写 API 地址和密钥。`docker-compose.proxy.yml` 会把加密配置保存到 `/data/config.enc.json`，并挂载到持久化卷。若首次升级自旧镜像且该路径不存在，服务会回退读取 `/app/server/data/config.enc.json` 的历史配置。
 
 ### 方式三：静态托管
 
@@ -249,7 +250,7 @@ zhida-ai/
 | [marked.js](https://github.com/markedjs/marked) | Markdown 解析 |
 | [highlight.js](https://highlightjs.org/) | 代码高亮 |
 | [KaTeX](https://katex.org/) | 数学公式渲染 |
-| Node.js 18+ 内置 `http` / `fetch` / `crypto` | 静态服务、配置加密和 API 代理 |
+| Node.js 20+/22+ 内置 `http` / `fetch` / `crypto` | 静态服务、配置加密和 API 代理 |
 | Nginx | Docker 静态部署 |
 | Google Chrome Headless | 浏览器 smoke 测试 |
 

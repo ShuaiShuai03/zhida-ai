@@ -8,10 +8,20 @@ on:
 
 jobs:
   validate:
-    name: Validate Docs, Scripts, and Logic
+    name: Validate Docs, Scripts, and Logic (Node ${{ matrix.node }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node:
+          - 20
+          - 22
     steps:
       - uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
 
       - name: Check required files exist
         run: |
@@ -109,16 +119,41 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
       - name: Verify Chrome availability
         run: google-chrome --version
       - name: Run smoke test
         run: bash scripts/run_smoke.sh
 
   docker:
-    name: Docker Build Test
+    name: Docker Frontend Build Test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Verify Docker ignore rules
+        run: |
+          mkdir -p server/data .zhida-data analysis specs
+          printf 'should-not-enter-image\n' > .env
+          printf 'should-not-enter-image\n' > server/data/config.enc.json
+          printf 'should-not-enter-image\n' > .zhida-data/config.enc.json
+          printf 'should-not-enter-image\n' > analysis/local-note.txt
+          printf 'should-not-enter-image\n' > specs/local-spec.md
+
+          cat > /tmp/zhida-dockerignore-check.Dockerfile <<'EOF'
+          FROM alpine:3.20
+          WORKDIR /probe
+          COPY . .
+          RUN test ! -e .env \
+            && test ! -e server/data/config.enc.json \
+            && test ! -e .zhida-data/config.enc.json \
+            && test ! -e analysis/local-note.txt \
+            && test ! -e specs/local-spec.md
+          EOF
+
+          docker build -f /tmp/zhida-dockerignore-check.Dockerfile -t zhida-ai-dockerignore-check .
       - name: Build Docker image
         run: docker build -t zhida-ai-test .
       - name: Verify container starts
@@ -127,3 +162,155 @@ jobs:
           sleep 2
           curl -f http://localhost:8080/ || exit 1
           docker stop test-container
+
+  docker-proxy:
+    name: Backend Proxy Docker Smoke (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node:
+          - 20
+          - 22
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Build backend proxy image
+        run: docker build -f Dockerfile.server --build-arg NODE_VERSION=${{ matrix.node }} -t zhida-ai-proxy-test:node-${{ matrix.node }} .
+      - name: Run backend proxy smoke
+        run: |
+          CONTAINER_NAME="zhida-ai-proxy-test-node-${{ matrix.node }}"
+          trap 'docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true' EXIT
+
+          docker run -d --name "$CONTAINER_NAME" \
+            -p 3000:3000 \
+            -e ZHIDA_CONFIG_SECRET=ci-test-secret \
+            -e ZHIDA_CONFIG_PATH=/data/config.enc.json \
+            zhida-ai-proxy-test:node-${{ matrix.node }}
+
+          attempts=0
+          until curl -fsS http://127.0.0.1:3000/api/config/status >/dev/null; do
+            attempts=$((attempts + 1))
+            if [ "$attempts" -ge 30 ]; then
+              docker logs "$CONTAINER_NAME"
+              docker stop "$CONTAINER_NAME"
+              exit 1
+            fi
+            sleep 1
+          done
+
+          if ! docker exec "$CONTAINER_NAME" whoami | grep -qx node; then
+            docker stop "$CONTAINER_NAME"
+            exit 1
+          fi
+
+          curl -fsS http://127.0.0.1:3000/api/config/status | grep -q '"configured":false'
+
+          test "$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/server/server.js)" = "404"
+          test "$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/server/data/config.enc.json)" = "404"
+          docker exec "$CONTAINER_NAME" test ! -e /app/server/data/config.enc.json
+          docker exec "$CONTAINER_NAME" test ! -e /data/config.enc.json
+
+          curl -fsS -X PUT http://127.0.0.1:3000/api/config \
+            -H 'Content-Type: application/json' \
+            -d '{"apiBaseUrl":"https://api.openai.com/v1","apiKey":"test-key"}' \
+            | grep -q '"configured":true'
+
+          docker exec "$CONTAINER_NAME" test -f /data/config.enc.json
+
+      - name: Run compose proxy smoke with fresh volume
+        env:
+          NODE_VERSION: ${{ matrix.node }}
+          ZHIDA_CONFIG_SECRET: ci-compose-test-secret
+        run: |
+          PROJECT_NAME="zhida-ai-proxy-ci-node-${{ matrix.node }}"
+          trap 'docker compose -p "$PROJECT_NAME" -f docker-compose.proxy.yml down -v >/dev/null 2>&1 || true' EXIT
+
+          docker compose -p "$PROJECT_NAME" -f docker-compose.proxy.yml up -d --build
+
+          attempts=0
+          until curl -fsS http://127.0.0.1:3000/api/config/status >/dev/null; do
+            attempts=$((attempts + 1))
+            if [ "$attempts" -ge 30 ]; then
+              docker compose -p "$PROJECT_NAME" -f docker-compose.proxy.yml logs
+              exit 1
+            fi
+            sleep 1
+          done
+
+          curl -fsS http://127.0.0.1:3000/api/config/status | grep -q '"configured":false'
+          docker compose -p "$PROJECT_NAME" -f docker-compose.proxy.yml exec -T zhida-ai-proxy test ! -e /data/config.enc.json
+
+          curl -fsS -X PUT http://127.0.0.1:3000/api/config \
+            -H 'Content-Type: application/json' \
+            -d '{"apiBaseUrl":"https://api.openai.com/v1","apiKey":"test-key"}' \
+            | grep -q '"configured":true'
+
+          docker compose -p "$PROJECT_NAME" -f docker-compose.proxy.yml exec -T zhida-ai-proxy whoami | grep -qx node
+          docker compose -p "$PROJECT_NAME" -f docker-compose.proxy.yml exec -T zhida-ai-proxy test -f /data/config.enc.json
+
+      - name: Run compose legacy config migration smoke
+        env:
+          NODE_VERSION: ${{ matrix.node }}
+          ZHIDA_CONFIG_SECRET: ci-compose-legacy-secret
+        run: |
+          PROJECT_NAME="zhida-ai-proxy-legacy-ci-node-${{ matrix.node }}"
+          LEGACY_DIR="$(mktemp -d)"
+          OVERRIDE_FILE="$(mktemp)"
+          trap 'docker compose -p "$PROJECT_NAME" -f docker-compose.proxy.yml -f "$OVERRIDE_FILE" down -v >/dev/null 2>&1 || true; rm -rf "$LEGACY_DIR" "$OVERRIDE_FILE"' EXIT
+
+          LEGACY_DIR="$LEGACY_DIR" node --input-type=module <<'NODE'
+          import { createCipheriv, createHash, randomBytes } from 'node:crypto';
+          import { mkdirSync, writeFileSync } from 'node:fs';
+          import { join } from 'node:path';
+
+          const secret = process.env.ZHIDA_CONFIG_SECRET;
+          const key = createHash('sha256').update(secret).digest();
+          const iv = randomBytes(12);
+          const cipher = createCipheriv('aes-256-gcm', key, iv);
+          const ciphertext = Buffer.concat([cipher.update('legacy-api-key', 'utf8'), cipher.final()]);
+          const payload = {
+            version: 1,
+            apiBaseUrl: 'http://127.0.0.1:11434',
+            ciphertext: ciphertext.toString('base64'),
+            iv: iv.toString('base64'),
+            authTag: cipher.getAuthTag().toString('base64'),
+            updatedAt: new Date().toISOString(),
+          };
+
+          mkdirSync(process.env.LEGACY_DIR, { recursive: true });
+          writeFileSync(join(process.env.LEGACY_DIR, 'config.enc.json'), `${JSON.stringify(payload, null, 2)}\n`, { mode: 0o600 });
+          NODE
+
+          cat > "$OVERRIDE_FILE" <<EOF
+          services:
+            zhida-ai-proxy:
+              volumes:
+                - ${LEGACY_DIR}:/app/server/data:ro
+          EOF
+
+          docker compose -p "$PROJECT_NAME" -f docker-compose.proxy.yml -f "$OVERRIDE_FILE" up -d --build
+
+          attempts=0
+          until curl -fsS http://127.0.0.1:3000/api/config/status >/tmp/zhida-compose-legacy-status.json; do
+            attempts=$((attempts + 1))
+            if [ "$attempts" -ge 30 ]; then
+              docker compose -p "$PROJECT_NAME" -f docker-compose.proxy.yml -f "$OVERRIDE_FILE" logs
+              exit 1
+            fi
+            sleep 1
+          done
+
+          grep -q '"configured":true' /tmp/zhida-compose-legacy-status.json
+          grep -q '"apiBaseUrl":"http://127.0.0.1:11434"' /tmp/zhida-compose-legacy-status.json
+          docker compose -p "$PROJECT_NAME" -f docker-compose.proxy.yml -f "$OVERRIDE_FILE" exec -T zhida-ai-proxy test ! -e /data/config.enc.json
+
+          curl -fsS -X PUT http://127.0.0.1:3000/api/config \
+            -H 'Content-Type: application/json' \
+            -d '{"apiBaseUrl":"https://api.openai.com/v1","apiKey":"test-key"}' \
+            | grep -q '"configured":true'
+
+          docker compose -p "$PROJECT_NAME" -f docker-compose.proxy.yml -f "$OVERRIDE_FILE" exec -T zhida-ai-proxy test -f /data/config.enc.json

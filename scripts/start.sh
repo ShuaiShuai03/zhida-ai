@@ -5,6 +5,24 @@ set -euo pipefail
 PORT="${1:-3000}"
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
+check_node_version() {
+  if ! command -v node &>/dev/null; then
+    echo "错误: 未找到 Node.js。"
+    echo "请安装 Node.js 20+: https://nodejs.org/"
+    exit 1
+  fi
+
+  local node_version node_major
+  node_version="$(node --version)"
+  node_major="$(node -p 'Number(process.versions.node.split(".")[0])')"
+
+  if [[ -z "$node_major" || "$node_major" -lt 20 ]]; then
+    echo "错误: 当前 Node.js 版本为 $node_version，不符合要求。"
+    echo "本项目要求 Node.js 20+。"
+    exit 1
+  fi
+}
+
 echo "============================================"
 echo "  智答 AI — 本地开发服务器"
 echo "============================================"
@@ -41,11 +59,6 @@ if [[ -z "${ZHIDA_CONFIG_SECRET:-}" ]]; then
   exit 1
 fi
 
-if command -v node &>/dev/null; then
-  echo "使用 Node 后端代理启动..."
-  cd "$DIR" && ZHIDA_PORT="$PORT" node server/server.js
-else
-  echo "错误: 未找到 Node.js。"
-  echo "请安装 Node.js 18 或更高版本: https://nodejs.org/"
-  exit 1
-fi
+check_node_version
+echo "使用 Node 后端代理启动..."
+cd "$DIR" && ZHIDA_PORT="$PORT" node server/server.js

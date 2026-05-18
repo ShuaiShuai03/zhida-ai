@@ -282,7 +282,7 @@ jobs:
           };
 
           mkdirSync(process.env.LEGACY_DIR, { recursive: true });
-          writeFileSync(join(process.env.LEGACY_DIR, 'config.enc.json'), `${JSON.stringify(payload, null, 2)}\n`, { mode: 0o600 });
+          writeFileSync(join(process.env.LEGACY_DIR, 'config.enc.json'), `${JSON.stringify(payload, null, 2)}\n`, { mode: 0o644 });
           NODE
 
           cat > "$OVERRIDE_FILE" <<EOF

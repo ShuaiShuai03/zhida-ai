@@ -71,6 +71,7 @@ ZHIDA_CONFIG_SECRET="change-this-to-a-long-random-secret" bash scripts/start.sh 
 | `ZHIDA_CONFIG_PATH` | 加密配置文件路径 | `.zhida-data/config.enc.json` |
 | `LEGACY_DOCKER_CONFIG_PATH` | Docker 升级兼容的只读配置路径（可选） | `/app/server/data/config.enc.json` |
 | `ZHIDA_PORT` | 本地监听端口 | `3000` |
+| `ZHIDA_HOST_PORT` | Docker Compose 暴露到宿主机的端口 | `3000` |
 | `ZHIDA_PROXY_TIMEOUT_MS` | 代理请求超时（毫秒） | `120000` |
 | `ZHIDA_PROXY_MAX_BODY_BYTES` | 单次代理请求体上限（字节） | `10485760` |
 

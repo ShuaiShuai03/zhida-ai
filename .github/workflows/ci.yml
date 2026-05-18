@@ -13,9 +13,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node:
-          - 20
-          - 22
+        include:
+          - node: 20
+            host_port: 3020
+          - node: 22
+            host_port: 3022
     steps:
       - uses: actions/checkout@v4
       - name: Setup Node.js
@@ -186,13 +188,13 @@ jobs:
           trap 'docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true' EXIT
 
           docker run -d --name "$CONTAINER_NAME" \
-            -p 3000:3000 \
+            -p ${{ matrix.host_port }}:3000 \
             -e ZHIDA_CONFIG_SECRET=ci-test-secret \
             -e ZHIDA_CONFIG_PATH=/data/config.enc.json \
             zhida-ai-proxy-test:node-${{ matrix.node }}
 
           attempts=0
-          until curl -fsS http://127.0.0.1:3000/api/config/status >/dev/null; do
+          until curl -fsS http://127.0.0.1:${{ matrix.host_port }}/api/config/status >/dev/null; do
             attempts=$((attempts + 1))
             if [ "$attempts" -ge 30 ]; then
               docker logs "$CONTAINER_NAME"
@@ -207,14 +209,14 @@ jobs:
             exit 1
           fi
 
-          curl -fsS http://127.0.0.1:3000/api/config/status | grep -q '"configured":false'
+          curl -fsS http://127.0.0.1:${{ matrix.host_port }}/api/config/status | grep -q '"configured":false'
 
-          test "$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/server/server.js)" = "404"
-          test "$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/server/data/config.enc.json)" = "404"
+          test "$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:${{ matrix.host_port }}/server/server.js)" = "404"
+          test "$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:${{ matrix.host_port }}/server/data/config.enc.json)" = "404"
           docker exec "$CONTAINER_NAME" test ! -e /app/server/data/config.enc.json
           docker exec "$CONTAINER_NAME" test ! -e /data/config.enc.json
 
-          curl -fsS -X PUT http://127.0.0.1:3000/api/config \
+          curl -fsS -X PUT http://127.0.0.1:${{ matrix.host_port }}/api/config \
             -H 'Content-Type: application/json' \
             -d '{"apiBaseUrl":"https://api.openai.com/v1","apiKey":"test-key"}' \
             | grep -q '"configured":true'
@@ -224,6 +226,7 @@ jobs:
       - name: Run compose proxy smoke with fresh volume
         env:
           NODE_VERSION: ${{ matrix.node }}
+          ZHIDA_HOST_PORT: ${{ matrix.host_port }}
           ZHIDA_CONFIG_SECRET: ci-compose-test-secret
         run: |
           PROJECT_NAME="zhida-ai-proxy-ci-node-${{ matrix.node }}"
@@ -232,7 +235,7 @@ jobs:
           docker compose -p "$PROJECT_NAME" -f docker-compose.proxy.yml up -d --build
 
           attempts=0
-          until curl -fsS http://127.0.0.1:3000/api/config/status >/dev/null; do
+          until curl -fsS http://127.0.0.1:${{ matrix.host_port }}/api/config/status >/dev/null; do
             attempts=$((attempts + 1))
             if [ "$attempts" -ge 30 ]; then
               docker compose -p "$PROJECT_NAME" -f docker-compose.proxy.yml logs
@@ -241,10 +244,10 @@ jobs:
             sleep 1
           done
 
-          curl -fsS http://127.0.0.1:3000/api/config/status | grep -q '"configured":false'
+          curl -fsS http://127.0.0.1:${{ matrix.host_port }}/api/config/status | grep -q '"configured":false'
           docker compose -p "$PROJECT_NAME" -f docker-compose.proxy.yml exec -T zhida-ai-proxy test ! -e /data/config.enc.json
 
-          curl -fsS -X PUT http://127.0.0.1:3000/api/config \
+          curl -fsS -X PUT http://127.0.0.1:${{ matrix.host_port }}/api/config \
             -H 'Content-Type: application/json' \
             -d '{"apiBaseUrl":"https://api.openai.com/v1","apiKey":"test-key"}' \
             | grep -q '"configured":true'
@@ -255,6 +258,7 @@ jobs:
       - name: Run compose legacy config migration smoke
         env:
           NODE_VERSION: ${{ matrix.node }}
+          ZHIDA_HOST_PORT: ${{ matrix.host_port }}
           ZHIDA_CONFIG_SECRET: ci-compose-legacy-secret
         run: |
           PROJECT_NAME="zhida-ai-proxy-legacy-ci-node-${{ matrix.node }}"
@@ -295,7 +299,7 @@ jobs:
           docker compose -p "$PROJECT_NAME" -f docker-compose.proxy.yml -f "$OVERRIDE_FILE" up -d --build
 
           attempts=0
-          until curl -fsS http://127.0.0.1:3000/api/config/status >/tmp/zhida-compose-legacy-status.json; do
+          until curl -fsS http://127.0.0.1:${{ matrix.host_port }}/api/config/status >/tmp/zhida-compose-legacy-status.json; do
             attempts=$((attempts + 1))
             if [ "$attempts" -ge 30 ]; then
               docker compose -p "$PROJECT_NAME" -f docker-compose.proxy.yml -f "$OVERRIDE_FILE" logs
@@ -308,7 +312,7 @@ jobs:
           grep -q '"apiBaseUrl":"http://127.0.0.1:11434"' /tmp/zhida-compose-legacy-status.json
           docker compose -p "$PROJECT_NAME" -f docker-compose.proxy.yml -f "$OVERRIDE_FILE" exec -T zhida-ai-proxy test ! -e /data/config.enc.json
 
-          curl -fsS -X PUT http://127.0.0.1:3000/api/config \
+          curl -fsS -X PUT http://127.0.0.1:${{ matrix.host_port }}/api/config \
             -H 'Content-Type: application/json' \
             -d '{"apiBaseUrl":"https://api.openai.com/v1","apiKey":"test-key"}' \
             | grep -q '"configured":true'

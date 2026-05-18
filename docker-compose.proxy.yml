@@ -6,7 +6,7 @@ services:
       args:
         NODE_VERSION: "${NODE_VERSION:-22}"
     ports:
-      - "3000:3000"
+      - "${ZHIDA_HOST_PORT:-3000}:3000"
     environment:
       ZHIDA_PORT: "3000"
       ZHIDA_CONFIG_SECRET: "${ZHIDA_CONFIG_SECRET:?set ZHIDA_CONFIG_SECRET}"

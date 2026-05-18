@@ -268,7 +268,7 @@ jobs:
 
           LEGACY_DIR="$LEGACY_DIR" node --input-type=module <<'NODE'
           import { createCipheriv, createHash, randomBytes } from 'node:crypto';
-          import { mkdirSync, writeFileSync } from 'node:fs';
+          import { chmodSync, mkdirSync, writeFileSync } from 'node:fs';
           import { join } from 'node:path';
 
           const secret = process.env.ZHIDA_CONFIG_SECRET;
@@ -286,6 +286,7 @@ jobs:
           };
 
           mkdirSync(process.env.LEGACY_DIR, { recursive: true });
+          chmodSync(process.env.LEGACY_DIR, 0o755);
           writeFileSync(join(process.env.LEGACY_DIR, 'config.enc.json'), `${JSON.stringify(payload, null, 2)}\n`, { mode: 0o644 });
           NODE
 

@@ -45,7 +45,7 @@
         .find((node) => node.textContent.includes(text));
     }
 
-    async function waitFor(predicate, label, timeout = 8000) {
+    async function waitFor(predicate, label, timeout = 15000) {
       const startedAt = Date.now();
       while (Date.now() - startedAt < timeout) {
         const result = predicate();

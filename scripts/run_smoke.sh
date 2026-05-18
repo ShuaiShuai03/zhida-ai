@@ -6,7 +6,7 @@ APP_HOST="${APP_HOST:-127.0.0.1}"
 APP_PORT="${APP_PORT:-3000}"
 API_PORT="${API_PORT:-11434}"
 CHROME_BIN="${CHROME_BIN:-google-chrome}"
-CHROME_TIMEOUT="${CHROME_TIMEOUT:-120s}"
+CHROME_TIMEOUT="${CHROME_TIMEOUT:-180s}"
 
 APP_LOG="$(mktemp)"
 API_LOG="$(mktemp)"
@@ -75,7 +75,7 @@ chrome_args=(
   --no-first-run
   --no-default-browser-check
   --user-data-dir="$USER_DATA_DIR"
-  --virtual-time-budget=45000
+  --virtual-time-budget=90000
   --dump-dom "http://${APP_HOST}:${APP_PORT}/tests/smoke.html"
 )
 

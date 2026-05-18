@@ -13,11 +13,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - node: 20
-            host_port: 3020
-          - node: 22
-            host_port: 3022
+        node:
+          - 20
+          - 22
     steps:
       - uses: actions/checkout@v4
       - name: Setup Node.js
@@ -171,9 +169,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node:
-          - 20
-          - 22
+        include:
+          - node: 20
+            host_port: 3020
+          - node: 22
+            host_port: 3022
     steps:
       - uses: actions/checkout@v4
       - name: Setup Node.js

@@ -69,12 +69,24 @@ function proxyConfigError(res, message = '代理未配置：请先在设置中�
   sendError(res, 500, message);
 }
 
+function safeDecodeURIComponent(value) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return null;
+  }
+}
+
 function getUpstreamPath(req) {
   if (req.method === 'GET' && req.url === '/api/models') return '/v1/models';
   if (req.method === 'POST' && req.url === '/api/chat/completions') return '/v1/chat/completions';
   if (req.method === 'POST' && req.url === '/api/responses') return '/v1/responses';
   const cancelMatch = req.method === 'POST' && req.url?.match(/^\/api\/responses\/([^/?#]+)\/cancel$/);
-  if (cancelMatch) return `/v1/responses/${encodeURIComponent(decodeURIComponent(cancelMatch[1]))}/cancel`;
+  if (cancelMatch) {
+    const responseId = safeDecodeURIComponent(cancelMatch[1]);
+    if (responseId === null) return null;
+    return `/v1/responses/${encodeURIComponent(responseId)}/cancel`;
+  }
   return null;
 }
 
@@ -308,6 +320,47 @@ async function readRequestBodyWithLimit(req) {
   return Buffer.concat(chunks);
 }
 
+function getAbortError(signal) {
+  return signal.reason instanceof Error ? signal.reason : new Error('aborted');
+}
+
+function waitForDrainOrAbort(res, signal) {
+  return new Promise((resolveDrain, rejectDrain) => {
+    if (signal.aborted) {
+      rejectDrain(getAbortError(signal));
+      return;
+    }
+
+    const cleanup = () => {
+      res.off('drain', onDrain);
+      res.off('close', onClose);
+      res.off('error', onError);
+      signal.removeEventListener('abort', onAbort);
+    };
+    const onDrain = () => {
+      cleanup();
+      resolveDrain();
+    };
+    const onClose = () => {
+      cleanup();
+      rejectDrain(new Error('client_closed'));
+    };
+    const onError = (err) => {
+      cleanup();
+      rejectDrain(err);
+    };
+    const onAbort = () => {
+      cleanup();
+      rejectDrain(getAbortError(signal));
+    };
+
+    res.once('drain', onDrain);
+    res.once('close', onClose);
+    res.once('error', onError);
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
 async function handleProxy(req, res, upstreamPath) {
   let proxyConfig;
   try {
@@ -322,7 +375,32 @@ async function handleProxy(req, res, upstreamPath) {
   }
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(new Error('proxy_timeout')), PROXY_TIMEOUT_MS);
+  let timeout = null;
+  let completed = false;
+  let abortReason = null;
+
+  const abortProxy = (reason) => {
+    if (completed || controller.signal.aborted) return;
+    abortReason = reason;
+    controller.abort(new Error(reason));
+  };
+  const refreshTimeout = () => {
+    clearTimeout(timeout);
+    timeout = setTimeout(() => abortProxy('proxy_timeout'), PROXY_TIMEOUT_MS);
+    timeout.unref?.();
+  };
+  const abortClientClosed = () => abortProxy('client_closed');
+  const cleanupProxyAbort = () => {
+    completed = true;
+    clearTimeout(timeout);
+    req.off('aborted', abortClientClosed);
+    res.off('close', abortClientClosed);
+  };
+
+  req.on('aborted', abortClientClosed);
+  res.on('close', abortClientClosed);
+  refreshTimeout();
+
   const upstreamHeaders = {
     Authorization: `Bearer ${proxyConfig.apiKey}`,
     Accept: req.headers.accept || 'application/json, text/event-stream',
@@ -334,24 +412,26 @@ async function handleProxy(req, res, upstreamPath) {
     signal: controller.signal,
   };
 
-  if (req.method === 'POST') {
-    try {
-      fetchOptions.body = await readRequestBodyWithLimit(req);
-      upstreamHeaders['Content-Type'] = req.headers['content-type'] || 'application/json';
-    } catch (err) {
-      clearTimeout(timeout);
-      if (err?.message === 'request_body_too_large') {
-        sendError(res, 413, '请求体过大');
+  try {
+    if (req.method === 'POST') {
+      try {
+        fetchOptions.body = await readRequestBodyWithLimit(req);
+        refreshTimeout();
+        upstreamHeaders['Content-Type'] = req.headers['content-type'] || 'application/json';
+      } catch (err) {
+        if (abortReason === 'client_closed') return;
+        completed = true;
+        if (err?.message === 'request_body_too_large') {
+          sendError(res, 413, '请求体过大');
+          return;
+        }
+        sendError(res, 400, '读取请求体失败');
         return;
       }
-      sendError(res, 400, '读取请求体失败');
-      return;
     }
-  }
 
-  try {
     const upstream = await fetch(buildUpstreamUrl(proxyConfig.apiBaseUrl, upstreamPath), fetchOptions);
-    clearTimeout(timeout);
+    refreshTimeout();
 
     if (!upstream.ok) {
       const rawError = await upstream.text().catch(() => '');
@@ -362,6 +442,7 @@ async function handleProxy(req, res, upstreamPath) {
         : redacted && redacted.length <= 500
         ? redacted
         : `上游请求失败 (${upstream.status})`;
+      completed = true;
       sendJson(res, upstream.status, { error: { message } });
       return;
     }
@@ -377,6 +458,7 @@ async function handleProxy(req, res, upstreamPath) {
     res.writeHead(upstream.status, headers);
 
     if (!upstream.body) {
+      completed = true;
       res.end();
       return;
     }
@@ -386,20 +468,25 @@ async function handleProxy(req, res, upstreamPath) {
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
+        refreshTimeout();
         if (!res.write(Buffer.from(value))) {
-          await new Promise((resolveDrain) => res.once('drain', resolveDrain));
+          await waitForDrainOrAbort(res, controller.signal);
+          refreshTimeout();
         }
       }
+      completed = true;
       res.end();
     } finally {
       reader.releaseLock();
     }
   } catch (err) {
-    clearTimeout(timeout);
+    if (abortReason === 'client_closed') return;
     if (res.headersSent) {
+      completed = true;
       res.destroy(err);
       return;
     }
+    completed = true;
     if (err?.message === 'request_body_too_large') {
       sendError(res, 413, '请求体过大');
       return;
@@ -409,6 +496,8 @@ async function handleProxy(req, res, upstreamPath) {
       return;
     }
     sendError(res, 502, '上游请求失败');
+  } finally {
+    cleanupProxyAbort();
   }
 }
 

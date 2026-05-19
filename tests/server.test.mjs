@@ -45,6 +45,19 @@ function closeChild(child) {
   if (!child.killed) child.kill();
 }
 
+async function closeServer(server) {
+  if (!server.listening) return;
+  await new Promise((resolveClose, rejectClose) => {
+    server.close((err) => {
+      if (err) {
+        rejectClose(err);
+        return;
+      }
+      resolveClose();
+    });
+  });
+}
+
 async function runProxyExpectingExit(env) {
   const child = startProxy(env);
   let stdout = '';
@@ -156,6 +169,99 @@ async function startMockApi() {
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   return { server, port: server.address().port, requests };
+}
+
+async function startStreamingMockApi() {
+  const intervals = new Set();
+  const activeResponses = new Set();
+  let streamClosed = false;
+  let chunksWritten = 0;
+
+  const server = createServer((req, res) => {
+    if (req.url !== '/v1/chat/completions') {
+      res.writeHead(404);
+      res.end();
+      return;
+    }
+
+    const chunks = [];
+    req.on('data', (chunk) => chunks.push(chunk));
+    req.on('end', () => {
+      activeResponses.add(res);
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      chunksWritten += 1;
+      res.write('data: {"choices":[{"delta":{"content":"start"}}]}\n\n');
+
+      const interval = setInterval(() => {
+        chunksWritten += 1;
+        res.write(`data: {"choices":[{"delta":{"content":"${chunksWritten}"}}]}\n\n`);
+      }, 50);
+      intervals.add(interval);
+
+      res.on('close', () => {
+        streamClosed = true;
+        clearInterval(interval);
+        intervals.delete(interval);
+        activeResponses.delete(res);
+      });
+    });
+  });
+
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  return {
+    server,
+    port: server.address().port,
+    get streamClosed() {
+      return streamClosed;
+    },
+    async close() {
+      for (const interval of intervals) clearInterval(interval);
+      intervals.clear();
+      for (const response of activeResponses) response.destroy();
+      activeResponses.clear();
+      await closeServer(server);
+    },
+  };
+}
+
+async function startStalledStreamMockApi() {
+  const activeResponses = new Set();
+  let streamClosed = false;
+
+  const server = createServer((req, res) => {
+    if (req.url !== '/v1/chat/completions') {
+      res.writeHead(404);
+      res.end();
+      return;
+    }
+
+    req.resume();
+    req.on('end', () => {
+      activeResponses.add(res);
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      res.write('data: {"choices":[{"delta":{"content":"start"}}]}\n\n');
+      res.on('close', () => {
+        streamClosed = true;
+        activeResponses.delete(res);
+      });
+    });
+  });
+
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  return {
+    server,
+    port: server.address().port,
+    get streamClosed() {
+      return streamClosed;
+    },
+    async close() {
+      for (const response of activeResponses) response.destroy();
+      activeResponses.clear();
+      await closeServer(server);
+    },
+  };
 }
 
 async function saveConfig(port, apiBaseUrl, apiKey = 'server-secret') {
@@ -327,6 +433,109 @@ test('responses proxy uses server-side authorization and forwards cancel request
   } finally {
     closeChild(proxy);
     mock.server.close();
+    await rm(configDir, { recursive: true, force: true });
+  }
+});
+
+test('malformed encoded cancel route is rejected without crashing proxy', async () => {
+  const port = await freePort();
+  const configDir = await mkdtemp(join(tmpdir(), 'zhida-config-test-'));
+  const proxy = startProxy({
+    ZHIDA_PORT: String(port),
+    ZHIDA_CONFIG_SECRET: 'test-secret',
+    ZHIDA_CONFIG_PATH: join(configDir, 'config.enc.json'),
+  });
+
+  try {
+    await waitForUrl(`http://127.0.0.1:${port}/index.html`);
+    const malformed = await fetch(`http://127.0.0.1:${port}/api/responses/%E0%A4%A/cancel`, {
+      method: 'POST',
+    });
+    assert.equal(malformed.status, 404);
+
+    const stillAlive = await fetch(`http://127.0.0.1:${port}/index.html`);
+    assert.equal(stillAlive.status, 200);
+  } finally {
+    closeChild(proxy);
+    await rm(configDir, { recursive: true, force: true });
+  }
+});
+
+test('client abort closes upstream streaming proxy requests', async () => {
+  const mock = await startStreamingMockApi();
+  const port = await freePort();
+  const configDir = await mkdtemp(join(tmpdir(), 'zhida-config-test-'));
+  const proxy = startProxy({
+    ZHIDA_PORT: String(port),
+    ZHIDA_CONFIG_SECRET: 'test-secret',
+    ZHIDA_CONFIG_PATH: join(configDir, 'config.enc.json'),
+  });
+
+  try {
+    await waitForUrl(`http://127.0.0.1:${port}/index.html`);
+    const saved = await saveConfig(port, `http://127.0.0.1:${mock.port}`);
+    assert.equal(saved.status, 200);
+
+    const controller = new AbortController();
+    const response = await fetch(`http://127.0.0.1:${port}/api/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: [], stream: true }),
+      signal: controller.signal,
+    });
+    assert.equal(response.status, 200);
+    const reader = response.body.getReader();
+    const first = await reader.read();
+    assert.equal(first.done, false);
+
+    controller.abort();
+    await delay(300);
+    assert.equal(mock.streamClosed, true);
+  } finally {
+    closeChild(proxy);
+    await mock.close();
+    await rm(configDir, { recursive: true, force: true });
+  }
+});
+
+test('stalled upstream response body is closed by proxy timeout after headers', async () => {
+  const mock = await startStalledStreamMockApi();
+  const port = await freePort();
+  const configDir = await mkdtemp(join(tmpdir(), 'zhida-config-test-'));
+  const proxy = startProxy({
+    ZHIDA_PORT: String(port),
+    ZHIDA_CONFIG_SECRET: 'test-secret',
+    ZHIDA_CONFIG_PATH: join(configDir, 'config.enc.json'),
+    ZHIDA_PROXY_TIMEOUT_MS: '120',
+  });
+
+  try {
+    await waitForUrl(`http://127.0.0.1:${port}/index.html`);
+    const saved = await saveConfig(port, `http://127.0.0.1:${mock.port}`);
+    assert.equal(saved.status, 200);
+
+    const response = await fetch(`http://127.0.0.1:${port}/api/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: [], stream: true }),
+    });
+    assert.equal(response.status, 200);
+    const reader = response.body.getReader();
+    const first = await reader.read();
+    assert.equal(first.done, false);
+
+    const secondRead = await Promise.race([
+      reader.read().then(
+        () => 'resolved',
+        () => 'rejected'
+      ),
+      delay(800).then(() => 'timed-out'),
+    ]);
+    assert.notEqual(secondRead, 'timed-out');
+    assert.equal(mock.streamClosed, true);
+  } finally {
+    closeChild(proxy);
+    await mock.close();
     await rm(configDir, { recursive: true, force: true });
   }
 });

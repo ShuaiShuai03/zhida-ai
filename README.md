@@ -52,7 +52,7 @@ node server/server.js
 ZHIDA_CONFIG_SECRET="change-this-to-a-long-random-secret" bash scripts/start.sh 3000
 ```
 
-打开 `http://localhost:3000`，点击右上角 **设置**，填入 API 地址和密钥，然后点击 **保存配置并获取模型列表**。API 地址可以填写 `https://api.openai.com` 或 `https://api.openai.com/v1`；后端会统一归一化，避免重复拼接 `/v1`。本地 Node 运行时，后端默认会将配置加密保存到 `.zhida-data/config.enc.json`，该路径不会被浏览器静态访问；旧版 `server/data/config.enc.json` 会被只读兼容读取。若显式使用 `ZHIDA_CONFIG_PATH=/data/config.enc.json` 且该文件不存在，服务会先尝试从旧的 `/app/server/data/config.enc.json`（或 `LEGACY_DOCKER_CONFIG_PATH`）读取；保存时仍会写入 `/data/config.enc.json`。Docker 后端代理会保存到 `/data/config.enc.json`。随后代理会转发：
+打开 `http://localhost:3000`，点击右上角 **设置**，填入 API 地址和密钥，然后点击 **保存配置并获取模型列表**。API 地址可以填写 `https://api.openai.com` 或 `https://api.openai.com/v1`；后端会统一归一化，避免重复拼接 `/v1`。本地 Node 运行时默认只监听 `127.0.0.1`，后端默认会将配置加密保存到 `.zhida-data/config.enc.json`，该路径不会被浏览器静态访问；旧版 `server/data/config.enc.json` 会被只读兼容读取。若显式使用 `ZHIDA_CONFIG_PATH=/data/config.enc.json` 且该文件不存在，服务会先尝试从旧的 `/app/server/data/config.enc.json`（或 `LEGACY_DOCKER_CONFIG_PATH`）读取；保存时仍会写入 `/data/config.enc.json`。Docker 后端代理会保存到 `/data/config.enc.json`。随后代理会转发：
 
 | 浏览器请求 | 上游请求 |
 |------------|----------|
@@ -70,10 +70,13 @@ ZHIDA_CONFIG_SECRET="change-this-to-a-long-random-secret" bash scripts/start.sh 
 | `ZHIDA_CONFIG_SECRET` | 加密 API 密钥的服务端密钥，必须设置 | 必填 |
 | `ZHIDA_CONFIG_PATH` | 加密配置文件路径 | `.zhida-data/config.enc.json` |
 | `LEGACY_DOCKER_CONFIG_PATH` | Docker 升级兼容的只读配置路径（可选） | `/app/server/data/config.enc.json` |
+| `ZHIDA_HOST` | Node 后端监听地址；本地默认仅回环地址 | `127.0.0.1` |
 | `ZHIDA_PORT` | 本地监听端口 | `3000` |
+| `ZHIDA_HOST_IP` | Docker Compose 发布到宿主机的 IP；如设为 `0.0.0.0`，请放在受控网络或带鉴权的反向代理后 | `127.0.0.1` |
 | `ZHIDA_HOST_PORT` | Docker Compose 暴露到宿主机的端口 | `3000` |
 | `ZHIDA_PROXY_TIMEOUT_MS` | 代理请求超时（毫秒） | `120000` |
 | `ZHIDA_PROXY_MAX_BODY_BYTES` | 单次代理请求体上限（字节） | `10485760` |
+| `ZHIDA_ENABLE_TEST_ROUTES` | 测试专用开关；设为 `1` 时才开放 `/tests/smoke.html` | 未开启 |
 
 ### 方式二：Docker 后端代理
 
@@ -85,7 +88,9 @@ ZHIDA_CONFIG_SECRET="change-this-to-a-long-random-secret" \
 docker compose -f docker-compose.proxy.yml up -d
 ```
 
-访问 `http://localhost:3000`，在设置中填写 API 地址和密钥。`docker-compose.proxy.yml` 会把加密配置保存到 `/data/config.enc.json`，并挂载到持久化卷。若首次升级自旧镜像且该路径不存在，服务会回退读取 `/app/server/data/config.enc.json` 的历史配置。
+访问 `http://localhost:3000`，在设置中填写 API 地址和密钥。`docker-compose.proxy.yml` 默认只把端口发布到宿主机 `127.0.0.1:${ZHIDA_HOST_PORT:-3000}`，会把加密配置保存到 `/data/config.enc.json`，并挂载到持久化卷。若首次升级自旧镜像且该路径不存在，服务会回退读取 `/app/server/data/config.enc.json` 的历史配置。
+
+如果确实需要从局域网或公网入口访问 Docker 后端代理，可以显式设置 `ZHIDA_HOST_IP=0.0.0.0`。这样会让宿主机所有网卡都暴露该端口，请确保它只运行在受控网络中，或位于带认证、限流和 HTTPS 的反向代理之后。
 
 ### 方式三：静态托管
 
@@ -191,7 +196,7 @@ node --check server/server.js
 bash scripts/run_smoke.sh
 ```
 
-浏览器 smoke 会启动本地 Node 后端和 mock API，覆盖加密配置保存、模型获取、会话模型恢复、网络搜索禁用态、Responses `web_search`、推理深度、流式回答、停止生成、后续请求恢复、提示词模板、对话置顶/标签搜索、备份导入恢复、Markdown URL 清洗、复制内容一致性以及键盘可达性。若 Chrome 在 CI 或慢机器上需要更长时间，可设置：
+浏览器 smoke 会启动本地 Node 后端和 mock API，并设置 `ZHIDA_ENABLE_TEST_ROUTES=1` 临时开放 `/tests/smoke.html`；普通运行环境默认不会暴露该测试页。它覆盖加密配置保存、模型获取、会话模型恢复、网络搜索禁用态、Responses `web_search`、推理深度、流式回答、停止生成、后续请求恢复、提示词模板、对话置顶/标签搜索、备份导入恢复、Markdown URL / inline style 清洗、复制内容一致性以及键盘可达性。若 Chrome 在 CI 或慢机器上需要更长时间，可设置：
 
 ```bash
 CHROME_TIMEOUT=180s bash scripts/run_smoke.sh

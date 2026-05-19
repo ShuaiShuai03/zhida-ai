@@ -62,6 +62,10 @@
       if (!sanitized.includes('href="#"') || sanitized.includes('src=')) {
         fail('sanitizer should block whitespace-obfuscated javascript URLs');
       }
+      const sanitizedStyle = sanitizeHTML('<span class="katex" style="position:fixed;inset:0">x</span><div style="color:red">y</div>');
+      if (sanitizedStyle.includes('style=') || !sanitizedStyle.includes('class="katex"')) {
+        fail('sanitizer should remove inline styles while preserving safe classes');
+      }
 
       const frame = document.getElementById('app-frame');
       await new Promise((resolve) => frame.addEventListener('load', resolve, { once: true }));

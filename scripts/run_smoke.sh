@@ -30,6 +30,7 @@ cd "$ROOT_DIR"
 ZHIDA_PORT="$APP_PORT" \
 ZHIDA_CONFIG_SECRET="${ZHIDA_CONFIG_SECRET:-zhida-smoke-secret}" \
 ZHIDA_CONFIG_PATH="$CONFIG_FILE" \
+ZHIDA_ENABLE_TEST_ROUTES=1 \
   node server/server.js >"$APP_LOG" 2>&1 &
 APP_PID=$!
 python3 scripts/mock_api.py "$API_PORT" >"$API_LOG" 2>&1 &

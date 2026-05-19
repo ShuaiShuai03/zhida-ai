@@ -9,7 +9,24 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const ROOT_DIR = resolve(__dirname, '..');
-const PORT = Number.parseInt(process.env.ZHIDA_PORT || '3000', 10);
+
+function readIntegerEnv(name, defaultValue, { min = 1, max = Number.MAX_SAFE_INTEGER } = {}) {
+  const raw = process.env[name] ?? String(defaultValue);
+  const value = String(raw).trim();
+  if (!/^\d+$/.test(value)) {
+    process.stderr.write(`错误: ${name} 必须是 ${min} 到 ${max} 之间的整数。\n`);
+    process.exit(1);
+  }
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < min || parsed > max) {
+    process.stderr.write(`错误: ${name} 必须是 ${min} 到 ${max} 之间的整数。\n`);
+    process.exit(1);
+  }
+  return parsed;
+}
+
+const HOST = String(process.env.ZHIDA_HOST || '127.0.0.1').trim() || '127.0.0.1';
+const PORT = readIntegerEnv('ZHIDA_PORT', '3000', { min: 1, max: 65535 });
 const DOCKER_CONFIG_PATH = '/data/config.enc.json';
 const DEFAULT_CONFIG_PATH = join(ROOT_DIR, '.zhida-data/config.enc.json');
 const LEGACY_CONFIG_PATH = join(__dirname, 'data/config.enc.json');
@@ -17,8 +34,9 @@ const LEGACY_DOCKER_CONFIG_PATH = resolve(process.env.LEGACY_DOCKER_CONFIG_PATH 
 const CONFIG_PATH_USES_DEFAULT = !process.env.ZHIDA_CONFIG_PATH;
 const CONFIG_PATH = resolve(process.env.ZHIDA_CONFIG_PATH || DEFAULT_CONFIG_PATH);
 const CONFIG_SECRET = process.env.ZHIDA_CONFIG_SECRET || '';
-const PROXY_TIMEOUT_MS = Number.parseInt(process.env.ZHIDA_PROXY_TIMEOUT_MS || '120000', 10);
-const MAX_PROXY_BODY_BYTES = Number.parseInt(process.env.ZHIDA_PROXY_MAX_BODY_BYTES || String(10 * 1024 * 1024), 10);
+const PROXY_TIMEOUT_MS = readIntegerEnv('ZHIDA_PROXY_TIMEOUT_MS', '120000');
+const MAX_PROXY_BODY_BYTES = readIntegerEnv('ZHIDA_PROXY_MAX_BODY_BYTES', String(10 * 1024 * 1024));
+const ENABLE_TEST_ROUTES = process.env.ZHIDA_ENABLE_TEST_ROUTES === '1';
 const CONFIG_VERSION = 1;
 const ENCRYPTION_ALGORITHM = 'aes-256-gcm';
 
@@ -431,7 +449,7 @@ function isAllowedStaticPath(pathname) {
     || pathname.startsWith('/css/')
     || pathname.startsWith('/js/')
     || pathname.startsWith('/assets/')
-    || pathname === '/tests/smoke.html';
+    || (ENABLE_TEST_ROUTES && pathname === '/tests/smoke.html');
 }
 
 async function handleStatic(req, res) {
@@ -490,6 +508,6 @@ const server = createServer((req, res) => {
   handleStatic(req, res);
 });
 
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Zhida AI listening on http://0.0.0.0:${PORT}`);
+server.listen(PORT, HOST, () => {
+  console.log(`Zhida AI listening on http://${HOST}:${PORT}`);
 });

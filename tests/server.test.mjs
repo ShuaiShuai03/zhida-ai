@@ -35,7 +35,7 @@ async function waitForUrl(url) {
 function startProxy(env) {
   const child = spawn(process.execPath, [join(process.cwd(), 'server/server.js')], {
     cwd: process.cwd(),
-    env: { ...process.env, ...env },
+    env: { ...process.env, ZHIDA_ENABLE_TEST_ROUTES: '', ...env },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   return child;
@@ -43,6 +43,29 @@ function startProxy(env) {
 
 function closeChild(child) {
   if (!child.killed) child.kill();
+}
+
+async function runProxyExpectingExit(env) {
+  const child = startProxy(env);
+  let stdout = '';
+  let stderr = '';
+  child.stdout.setEncoding('utf8');
+  child.stderr.setEncoding('utf8');
+  child.stdout.on('data', (chunk) => {
+    stdout += chunk;
+  });
+  child.stderr.on('data', (chunk) => {
+    stderr += chunk;
+  });
+  const timeout = setTimeout(() => {
+    if (!child.killed) child.kill();
+  }, 3000);
+  try {
+    const [code, signal] = await once(child, 'exit');
+    return { code, signal, stdout, stderr };
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 function makeEncryptedConfigPayload(secret, { apiBaseUrl, apiKey }) {
@@ -162,6 +185,99 @@ test('config save requires encryption secret and unknown api paths are 404', asy
   } finally {
     closeChild(proxy);
     await rm(configDir, { recursive: true, force: true });
+  }
+});
+
+test('static smoke test page is hidden even when parent test routes are enabled', async () => {
+  const port = await freePort();
+  const configDir = await mkdtemp(join(tmpdir(), 'zhida-config-test-'));
+  const previousTestRoutes = process.env.ZHIDA_ENABLE_TEST_ROUTES;
+  let proxy;
+
+  try {
+    process.env.ZHIDA_ENABLE_TEST_ROUTES = '1';
+    proxy = startProxy({
+      ZHIDA_PORT: String(port),
+      ZHIDA_CONFIG_SECRET: 'test-secret',
+      ZHIDA_CONFIG_PATH: join(configDir, 'config.enc.json'),
+    });
+    await waitForUrl(`http://127.0.0.1:${port}/index.html`);
+    const smoke = await fetch(`http://127.0.0.1:${port}/tests/smoke.html`);
+    assert.equal(smoke.status, 404);
+  } finally {
+    if (previousTestRoutes === undefined) {
+      delete process.env.ZHIDA_ENABLE_TEST_ROUTES;
+    } else {
+      process.env.ZHIDA_ENABLE_TEST_ROUTES = previousTestRoutes;
+    }
+    if (proxy) closeChild(proxy);
+    await rm(configDir, { recursive: true, force: true });
+  }
+});
+
+test('static smoke test page is served when test routes are explicitly enabled', async () => {
+  const port = await freePort();
+  const configDir = await mkdtemp(join(tmpdir(), 'zhida-config-test-'));
+  const proxy = startProxy({
+    ZHIDA_PORT: String(port),
+    ZHIDA_CONFIG_SECRET: 'test-secret',
+    ZHIDA_CONFIG_PATH: join(configDir, 'config.enc.json'),
+    ZHIDA_ENABLE_TEST_ROUTES: '1',
+  });
+
+  try {
+    await waitForUrl(`http://127.0.0.1:${port}/index.html`);
+    const smoke = await fetch(`http://127.0.0.1:${port}/tests/smoke.html`);
+    assert.equal(smoke.status, 200);
+    assert.match(await smoke.text(), /Zhida AI Smoke Test/);
+  } finally {
+    closeChild(proxy);
+    await rm(configDir, { recursive: true, force: true });
+  }
+});
+
+test('static smoke test page rejects non-literal test route flags', async () => {
+  const cases = ['0', 'true', 'yes'];
+
+  for (const value of cases) {
+    const port = await freePort();
+    const configDir = await mkdtemp(join(tmpdir(), 'zhida-config-test-'));
+    const proxy = startProxy({
+      ZHIDA_PORT: String(port),
+      ZHIDA_CONFIG_SECRET: 'test-secret',
+      ZHIDA_CONFIG_PATH: join(configDir, 'config.enc.json'),
+      ZHIDA_ENABLE_TEST_ROUTES: value,
+    });
+
+    try {
+      await waitForUrl(`http://127.0.0.1:${port}/index.html`);
+      const smoke = await fetch(`http://127.0.0.1:${port}/tests/smoke.html`);
+      assert.equal(smoke.status, 404, `ZHIDA_ENABLE_TEST_ROUTES=${value} should not expose smoke test`);
+    } finally {
+      closeChild(proxy);
+      await rm(configDir, { recursive: true, force: true });
+    }
+  }
+});
+
+test('invalid numeric environment variables fail fast', async () => {
+  const cases = [
+    ['ZHIDA_PORT', '0'],
+    ['ZHIDA_PORT', '65536'],
+    ['ZHIDA_PROXY_TIMEOUT_MS', '0'],
+    ['ZHIDA_PROXY_TIMEOUT_MS', '12.5'],
+    ['ZHIDA_PROXY_MAX_BODY_BYTES', '0'],
+    ['ZHIDA_PROXY_MAX_BODY_BYTES', 'not-a-number'],
+  ];
+
+  for (const [name, value] of cases) {
+    const result = await runProxyExpectingExit({
+      ZHIDA_CONFIG_SECRET: 'test-secret',
+      [name]: value,
+    });
+    assert.notEqual(result.code, 0, `${name}=${value} should exit non-zero`);
+    assert.equal(result.signal, null);
+    assert.match(result.stderr, new RegExp(name));
   }
 });
 
@@ -525,6 +641,9 @@ test('static server only exposes browser app assets and blocks backend internals
     const appJs = await fetch(`http://127.0.0.1:${port}/js/app.js`);
     assert.equal(appJs.status, 200);
     assert.match(appJs.headers.get('content-type') ?? '', /javascript/);
+
+    const smokePage = await fetch(`http://127.0.0.1:${port}/tests/smoke.html`);
+    assert.equal(smokePage.status, 404);
 
     const backendSource = await fetch(`http://127.0.0.1:${port}/server/server.js`);
     assert.equal(backendSource.status, 404);

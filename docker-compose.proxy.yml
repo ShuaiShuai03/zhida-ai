@@ -6,12 +6,13 @@ services:
       args:
         NODE_VERSION: "${NODE_VERSION:-22}"
     ports:
-      - "${ZHIDA_HOST_PORT:-3000}:3000"
+      - "${ZHIDA_HOST_IP:-127.0.0.1}:${ZHIDA_HOST_PORT:-3000}:3000"
     environment:
       ZHIDA_PORT: "3000"
       ZHIDA_CONFIG_SECRET: "${ZHIDA_CONFIG_SECRET:?set ZHIDA_CONFIG_SECRET}"
       ZHIDA_CONFIG_PATH: "/data/config.enc.json"
       ZHIDA_PROXY_TIMEOUT_MS: "${ZHIDA_PROXY_TIMEOUT_MS:-120000}"
+      ZHIDA_PROXY_MAX_BODY_BYTES: "${ZHIDA_PROXY_MAX_BODY_BYTES:-10485760}"
     volumes:
       - zhida-ai-config:/data
     restart: unless-stopped

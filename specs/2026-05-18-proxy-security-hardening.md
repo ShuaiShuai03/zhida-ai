@@ -59,7 +59,7 @@ function isAllowedStaticPath(pathname) {
     || pathname.startsWith('/css/')
     || pathname.startsWith('/js/')
     || pathname.startsWith('/assets/')
-    || pathname === '/tests/smoke.html';
+    || (ENABLE_TEST_ROUTES && pathname === '/tests/smoke.html');
 }
 ```
 
@@ -85,7 +85,8 @@ Keep errors user-facing and Chinese where they are returned to the app. Keep tes
 - `GET /server/server.js` returns 404.
 - `GET /server/data/config.enc.json` returns 404 even when that file exists locally.
 - Missing files under allowed static prefixes return 404 instead of falling back to `index.html`.
-- `/index.html`, `/css/*`, `/js/*`, `/assets/*`, and `/tests/smoke.html` continue to work.
+- `/index.html`, `/css/*`, `/js/*`, and `/assets/*` continue to work.
+- `/tests/smoke.html` returns 404 by default and only works when `ZHIDA_ENABLE_TEST_ROUTES=1`.
 - Default encrypted config path is outside the browser-served static allowlist.
 - Saving config with no explicit `ZHIDA_CONFIG_PATH` writes `.zhida-data/config.enc.json` and does not rewrite the legacy file.
 - Legacy `server/data/config.enc.json` deployments do not break abruptly; the backend may read the old file for compatibility while new saves use `.zhida-data/config.enc.json`.

@@ -15,10 +15,16 @@ node_modules/
 npm-debug.log*
 yarn-error.log*
 
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
 # Environment & secrets
 .env
 .env.local
 .env.*.local
+.codex
 server/data/
 .zhida-data/
 *.enc.json

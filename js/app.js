@@ -55,6 +55,7 @@ import {
   initNetworkStatus,
   updateSystemPromptIndicator,
   updateComposerCapabilityControls,
+  updateWelcomeBackendStatus,
   cleanupUI,
 } from './ui.js';
 import {
@@ -130,24 +131,49 @@ function getCurrentSearchQuery() {
 function updateBackendStatusUI() {
   const statusNode = $('#backend-status');
   const fetchModelsBtn = $('#fetch-models-btn');
-  if (!statusNode) return;
 
   if (state.backendAvailable === false) {
-    statusNode.textContent = state.backendError || BACKEND_UNAVAILABLE_MESSAGE;
-    statusNode.hidden = false;
+    if (statusNode) {
+      statusNode.textContent = state.backendError || BACKEND_UNAVAILABLE_MESSAGE;
+      statusNode.hidden = false;
+    }
     if (fetchModelsBtn) {
       fetchModelsBtn.disabled = true;
       fetchModelsBtn.title = '需要先启动 Node 后端代理';
     }
-    return;
+  } else {
+    if (statusNode) {
+      statusNode.hidden = true;
+      statusNode.textContent = '';
+    }
+    if (fetchModelsBtn) {
+      fetchModelsBtn.disabled = false;
+      fetchModelsBtn.title = '';
+    }
   }
 
-  statusNode.hidden = true;
-  statusNode.textContent = '';
-  if (fetchModelsBtn) {
-    fetchModelsBtn.disabled = false;
-    fetchModelsBtn.title = '';
+  updateWelcomeBackendStatus();
+}
+
+function openSettingsModal() {
+  const apiBaseUrlInput = $('#settings-api-base-url');
+  const apiKeyInput = $('#settings-api-key');
+  const sysPromptInput = $('#settings-system-prompt');
+  const tempSlider = $('#settings-temperature');
+  const tempValue = $('#temp-value');
+  const maxTokensInput = $('#settings-max-tokens');
+
+  if (apiBaseUrlInput) apiBaseUrlInput.value = state.apiBaseUrl;
+  if (apiKeyInput) {
+    apiKeyInput.value = '';
+    apiKeyInput.type = 'password';
   }
+  if (sysPromptInput) sysPromptInput.value = state.systemPrompt;
+  if (tempSlider) tempSlider.value = state.temperature;
+  if (tempValue) tempValue.textContent = state.temperature.toFixed(1);
+  if (maxTokensInput) maxTokensInput.value = state.maxTokens;
+  updateBackendStatusUI();
+  openModal('settings-modal');
 }
 
 function downloadJSON(filename, payload) {
@@ -389,8 +415,7 @@ async function init() {
   updateShortcutLabels();
 
   // Initial send button state
-  const textarea = $('#chat-input');
-  updateSendButton(textarea?.value.trim().length > 0);
+  updateSendButton(canSend());
 
   // Check storage
   if (isStorageNearFull()) {
@@ -401,11 +426,13 @@ async function init() {
   if (state.backendAvailable === false) {
     showToast(state.backendError || BACKEND_UNAVAILABLE_MESSAGE, 'error', 6000);
   } else if (!state.isApiConfigured) {
-    showToast('请先点击右上角设置按钮，配置 API 地址和密钥', 'warning', 3000);
+    showToast('请先配置 API 地址和密钥，欢迎区域可直接点击“打开设置”', 'warning', 3000);
   } else {
     // Auto-refresh models from the API in background
     refreshModels();
   }
+
+  document.documentElement.dataset.appReady = 'true';
 }
 
 // ============================================
@@ -444,6 +471,11 @@ function bindInputEvents() {
   const fileInput = $('#file-input');
   const webSearchToggle = $('#web-search-toggle');
   const reasoningSelect = $('#reasoning-effort-select');
+
+  // chat.js 只负责流式状态，最终可发送条件统一回到这里计算，避免遗漏附件态。
+  document.addEventListener('composer-state-sync', () => {
+    updateSendButton(canSend());
+  }, { signal });
 
   if (textarea) {
     // Auto-resize on input
@@ -740,26 +772,7 @@ function bindHeaderEvents() {
 
   if (settingsBtn) {
     settingsBtn.addEventListener('click', () => {
-      // Populate settings form with current values
-      const apiBaseUrlInput = $('#settings-api-base-url');
-      const apiKeyInput = $('#settings-api-key');
-      const sysPromptInput = $('#settings-system-prompt');
-      const tempSlider = $('#settings-temperature');
-      const tempValue = $('#temp-value');
-      const maxTokensInput = $('#settings-max-tokens');
-
-      if (apiBaseUrlInput) apiBaseUrlInput.value = state.apiBaseUrl;
-      if (apiKeyInput) {
-        apiKeyInput.value = '';
-        apiKeyInput.type = 'password';
-      }
-      if (sysPromptInput) sysPromptInput.value = state.systemPrompt;
-      if (tempSlider) tempSlider.value = state.temperature;
-      if (tempValue) tempValue.textContent = state.temperature.toFixed(1);
-      if (maxTokensInput) maxTokensInput.value = state.maxTokens;
-      updateBackendStatusUI();
-
-      openModal('settings-modal');
+      openSettingsModal();
     }, { signal });
   }
 
@@ -817,7 +830,7 @@ function bindHeaderEvents() {
   const sysPromptIndicator = $('.system-prompt-indicator');
   if (sysPromptIndicator) {
     sysPromptIndicator.addEventListener('click', () => {
-      settingsBtn?.click();
+      openSettingsModal();
     }, { signal });
   }
 }
@@ -1070,6 +1083,12 @@ function bindModalEvents() {
   const chatMessagesInner = $('#chat-messages-inner');
   if (chatMessagesInner) {
     chatMessagesInner.addEventListener('click', (e) => {
+      const openSettingsBtn = e.target.closest('#welcome-open-settings-btn');
+      if (openSettingsBtn) {
+        openSettingsModal();
+        return;
+      }
+
       handleMessageAction(e);
       handleThinkingToggle(e);
 

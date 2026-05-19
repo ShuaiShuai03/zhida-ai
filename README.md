@@ -35,7 +35,9 @@
 
 ## 快速开始
 
-### 方式一：Node 后端代理
+### 方式一（推荐）：Node 后端代理
+
+> 一条进程同时服务前端页面与 API 代理：启动后直接访问同一端口即可完整使用聊天能力。
 
 ```bash
 git clone https://github.com/ShuaiShuai03/zhida-ai.git
@@ -52,7 +54,16 @@ node server/server.js
 ZHIDA_CONFIG_SECRET="change-this-to-a-long-random-secret" bash scripts/start.sh 3000
 ```
 
-打开 `http://localhost:3000`，点击右上角 **设置**，填入 API 地址和密钥，然后点击 **保存配置并获取模型列表**。API 地址可以填写 `https://api.openai.com` 或 `https://api.openai.com/v1`；后端会统一归一化，避免重复拼接 `/v1`。本地 Node 运行时默认只监听 `127.0.0.1`，后端默认会将配置加密保存到 `.zhida-data/config.enc.json`，该路径不会被浏览器静态访问；旧版 `server/data/config.enc.json` 会被只读兼容读取。若显式使用 `ZHIDA_CONFIG_PATH=/data/config.enc.json` 且该文件不存在，服务会先尝试从旧的 `/app/server/data/config.enc.json`（或 `LEGACY_DOCKER_CONFIG_PATH`）读取；保存时仍会写入 `/data/config.enc.json`。Docker 后端代理会保存到 `/data/config.enc.json`。随后代理会转发：
+打开 `http://localhost:3000`，点击右上角 **设置**，填入 API 地址和密钥，然后点击 **保存配置并获取模型列表**。
+
+说明：
+- 前端页面和 `/api/*` 代理在同一 Node 进程中运行，浏览器始终调用同源接口，不需要再单独启动静态服务。
+- API 地址可填 `https://api.openai.com` 或 `https://api.openai.com/v1`，后端会统一归一化，避免重复拼接 `/v1`。
+- 本地默认只监听 `127.0.0.1`，默认将加密配置写入 `.zhida-data/config.enc.json`，该文件不在可被浏览器静态访问的目录里。
+- 旧版 `server/data/config.enc.json` 会被只读兼容读取；若显式设置了 `ZHIDA_CONFIG_PATH=/data/config.enc.json` 且该路径不存在，会先尝试从旧的 `/app/server/data/config.enc.json`（或 `LEGACY_DOCKER_CONFIG_PATH`）读取，保存时始终按 `ZHIDA_CONFIG_PATH` 写入。
+- Docker 后端代理同样会把加密配置落盘到 `/data/config.enc.json`。
+
+随后代理会转发：
 
 | 浏览器请求 | 上游请求 |
 |------------|----------|
@@ -70,7 +81,7 @@ ZHIDA_CONFIG_SECRET="change-this-to-a-long-random-secret" bash scripts/start.sh 
 | `ZHIDA_CONFIG_SECRET` | 加密 API 密钥的服务端密钥，必须设置 | 必填 |
 | `ZHIDA_CONFIG_PATH` | 加密配置文件路径 | `.zhida-data/config.enc.json` |
 | `LEGACY_DOCKER_CONFIG_PATH` | Docker 升级兼容的只读配置路径（可选） | `/app/server/data/config.enc.json` |
-| `ZHIDA_HOST` | Node 后端监听地址；本地默认仅回环地址 | `127.0.0.1` |
+| `ZHIDA_HOST` | Node 后端监听地址；本地 `node server/server.js` 默认仅回环；Docker 镜像内部设为 `0.0.0.0` 以便容器端口映射 | 本地 `127.0.0.1`；容器内 `0.0.0.0` |
 | `ZHIDA_PORT` | 本地监听端口 | `3000` |
 | `ZHIDA_HOST_IP` | Docker Compose 发布到宿主机的 IP；如设为 `0.0.0.0`，请放在受控网络或带鉴权的反向代理后 | `127.0.0.1` |
 | `ZHIDA_HOST_PORT` | Docker Compose 暴露到宿主机的端口 | `3000` |
@@ -88,9 +99,16 @@ ZHIDA_CONFIG_SECRET="change-this-to-a-long-random-secret" \
 docker compose -f docker-compose.proxy.yml up -d
 ```
 
-访问 `http://localhost:3000`，在设置中填写 API 地址和密钥。`docker-compose.proxy.yml` 默认只把端口发布到宿主机 `127.0.0.1:${ZHIDA_HOST_PORT:-3000}`，会把加密配置保存到 `/data/config.enc.json`，并挂载到持久化卷。若首次升级自旧镜像且该路径不存在，服务会回退读取 `/app/server/data/config.enc.json` 的历史配置。
+访问 `http://localhost:3000`，在设置中填写 API 地址和密钥。
+
+`docker-compose.proxy.yml` 默认只把端口发布到宿主机 `${ZHIDA_HOST_IP:-127.0.0.1}:${ZHIDA_HOST_PORT:-3000}`，默认仅对本机回环地址开放。Dockerfile 中的 `ZHIDA_HOST=0.0.0.0` 只表示容器内部监听全部接口，方便 Docker 端口映射；是否暴露到宿主机或公网仍由 Compose 的 `ZHIDA_HOST_IP` 控制。
+- 容器内使用的也是同一个 `server/server.js`，所以一个容器进程同时提供前端页面与 `/api/*` 代理能力。
+- 加密配置写入 `/data/config.enc.json`，并通过名为 `zhida-ai-config` 的 Docker 卷持久化。
+- 若首次升级自旧镜像且该路径不存在，服务会回退读取 `/app/server/data/config.enc.json` 的历史配置。
 
 如果确实需要从局域网或公网入口访问 Docker 后端代理，可以显式设置 `ZHIDA_HOST_IP=0.0.0.0`。这样会让宿主机所有网卡都暴露该端口，请确保它只运行在受控网络中，或位于带认证、限流和 HTTPS 的反向代理之后。
+
+该设置会带来更高公开暴露风险：`0.0.0.0` 同时监听本机所有网卡，建议仅在受控内网或反向代理后的 HTTPS 环境下使用。
 
 ### 方式三：静态托管
 
@@ -101,7 +119,9 @@ npx serve . -p 3000
 python3 -m http.server 3000
 ```
 
-但 `npx serve . -p 3000`、`python3 -m http.server 3000` 和 GitHub Pages 都只是纯静态托管。它们没有 `/api/config/status`、`PUT /api/config`、`/api/models`、`/api/chat/completions` 和 `/api/responses` 后端能力，不能安全保存或隐藏 API key，也不能直接完成模型获取、聊天、网络搜索或 Responses 取消请求。需要完整功能时，请改用 `ZHIDA_CONFIG_SECRET="..." node server/server.js` 或 `scripts/start.sh` 启动 Node 后端代理。
+但 `npx serve . -p 3000`、`python3 -m http.server 3000` 和 GitHub Pages 都只是纯静态托管。它们没有 `/api/config/status`、`PUT /api/config`、`/api/models`、`/api/chat/completions` 和 `/api/responses` 后端能力，不能安全保存或隐藏 API key，也不能直接完成模型获取、聊天、网络搜索或 Responses 取消请求。
+
+静态托管只适合“查看界面”。若要实际可用聊天，请改用 `ZHIDA_CONFIG_SECRET="..." node server/server.js` 或 `scripts/start.sh` 启动 Node 后端代理。
 
 ## 配置 API
 

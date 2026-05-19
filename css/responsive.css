@@ -130,6 +130,14 @@
     grid-template-columns: 1fr;
   }
 
+  .welcome-screen__backend-status {
+    padding: var(--space-3);
+  }
+
+  .welcome-screen__backend-status .btn {
+    width: 100%;
+  }
+
   /* Toast positioning for mobile */
   .toast-container {
     top: var(--space-2);

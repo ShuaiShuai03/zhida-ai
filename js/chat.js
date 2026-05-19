@@ -594,6 +594,10 @@ function appendMessageAfterAnchor(conversationId, message, afterMessageId) {
   });
 }
 
+function requestComposerStateSync() {
+  document.dispatchEvent(new Event('composer-state-sync'));
+}
+
 /**
  * Finalize a streaming response into a persisted AI message when appropriate.
  */
@@ -615,7 +619,7 @@ function finalizeStreamingResult(options) {
   if (syncUi) {
     state.isStreaming = false;
     showStopButton(false);
-    updateSendButton(true);
+    requestComposerStateSync();
   }
   clearCurrentStreamRequest(requestId);
   streaming.finalize();
@@ -679,7 +683,7 @@ function commitStreamingError(options) {
   if (syncUi) {
     state.isStreaming = false;
     showStopButton(false);
-    updateSendButton(true);
+    requestComposerStateSync();
   }
   clearCurrentStreamRequest(requestId);
 

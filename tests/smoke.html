@@ -40,9 +40,227 @@
       element.dispatchEvent(new Event('change', { bubbles: true }));
     }
 
+    function requireElement(selector, root = document, context = 'DOM 查找') {
+      const element = root.querySelector(selector);
+      if (!element) {
+        fail(`${context}: 未找到元素 ${selector}`);
+      }
+      return element;
+    }
+
+    function safeText(selector, root = document) {
+      const element = root.querySelector(selector);
+      return element ? element.textContent || '' : '';
+    }
+
+    function safeInnerHTML(selector, root = document) {
+      const element = root.querySelector(selector);
+      return element ? element.innerHTML || '' : '';
+    }
+
+    function safeAttr(selector, attr, root = document) {
+      const element = root.querySelector(selector);
+      return element ? (element.getAttribute(attr) || '') : '';
+    }
+
+    function safeValue(selector, root = document) {
+      const element = root.querySelector(selector);
+      return element ? (element.value || '') : '';
+    }
+
     function findByText(selector, text, root = document) {
       return Array.from(root.querySelectorAll(selector))
         .find((node) => node.textContent.includes(text));
+    }
+
+    function findByTextOrFail(selector, text, root = document, context = '文本查找') {
+      const node = findByText(selector, text, root);
+      if (!node) fail(`${context}: 未找到文本 "${text}" 的 ${selector}`);
+      return node;
+    }
+
+    function clickBySelector(selector, root = document, context = '点击元素') {
+      click(requireElement(selector, root, context));
+    }
+
+    function inputBySelector(selector, value, root = document, context = '输入值') {
+      inputValue(requireElement(selector, root, context), value);
+    }
+
+    function dispatchBySelector(selector, event, root = document, context = '触发事件') {
+      requireElement(selector, root, context).dispatchEvent(event);
+    }
+
+    async function attachTextFileDuringSmoke(win, doc, filename, content) {
+      const fileInput = requireElement('#file-input', doc, '准备上传测试附件');
+      const dataTransfer = new win.DataTransfer();
+      dataTransfer.items.add(new win.File([content], filename, { type: 'text/plain' }));
+      fileInput.files = dataTransfer.files;
+      fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+      await waitFor(
+        () => findByText('.attachment-chip', filename, doc),
+        `attachment ${filename} rendered`
+      );
+    }
+
+    function parsePxPx(value, context = '样式值') {
+      const num = Number.parseFloat(value);
+      if (!Number.isFinite(num)) {
+        fail(`${context}: 无法解析像素值 "${value}"`);
+      }
+      return num;
+    }
+
+    function assertRoundRadii(label, element, root = document, options = {}) {
+      const { allowZero = false } = options;
+      const style = root.defaultView.getComputedStyle(element);
+      const radiusValues = [
+        parsePxPx(style.borderTopLeftRadius, `${label}: borderTopLeftRadius`),
+        parsePxPx(style.borderTopRightRadius, `${label}: borderTopRightRadius`),
+        parsePxPx(style.borderBottomRightRadius, `${label}: borderBottomRightRadius`),
+        parsePxPx(style.borderBottomLeftRadius, `${label}: borderBottomLeftRadius`)
+      ];
+      if (!allowZero && radiusValues.some((value) => value <= 0)) {
+        fail(`${label}: 关键圆角当前值为 0 或无效`);
+      }
+      if (allowZero && radiusValues.every((value) => value <= 0)) {
+        return 0;
+      }
+
+      const [minRadius, maxRadius] = [Math.min(...radiusValues), Math.max(...radiusValues)];
+      if (maxRadius - minRadius > 0.5) {
+        fail(`${label}: 四角圆角不一致`);
+      }
+      return minRadius;
+    }
+
+    function assertDesignRadiusConsistency(win, doc) {
+      const rootStyle = win.getComputedStyle(win.document.documentElement);
+      const tokenNames = ['--radius-sm', '--radius-md', '--radius-lg', '--radius-xl', '--radius-full'];
+      const tokenPx = {};
+
+      for (const tokenName of tokenNames) {
+        const tokenValue = rootStyle.getPropertyValue(tokenName).trim();
+        tokenPx[tokenName] = parsePxPx(tokenValue || '0', `设计 token ${tokenName}`);
+        if (tokenPx[tokenName] <= 0) {
+          fail(`设计 token ${tokenName} 应为正值，当前值 ${tokenValue}`);
+        }
+      }
+
+      const composerRadius = assertRoundRadii('composer 圆角', requireElement('.composer', doc, '检查 composer 圆角'), doc);
+      const textareaRadius = assertRoundRadii('textarea 圆角', requireElement('#chat-input', doc, '检查输入框圆角'), doc);
+      const sendRadius = assertRoundRadii('发送按钮圆角', requireElement('#send-btn', doc, '检查发送按钮圆角'), doc);
+      const stopRadius = assertRoundRadii('停止按钮圆角', requireElement('#stop-btn', doc, '检查停止按钮圆角'), doc);
+
+      if (composerRadius < 1) {
+        fail('composer 圆角在运行时应大于 0');
+      }
+      if (sendRadius < 1 || stopRadius < 1) {
+        fail('send/stop 按钮圆角在运行时应大于 0');
+      }
+      if (textareaRadius < 1) {
+        fail('textarea 圆角在运行时应大于 0');
+      }
+      if (Math.abs(sendRadius - stopRadius) > 0.5) {
+        fail('send/stop 按钮圆角应保持一致');
+      }
+    }
+
+    function assertFocusVisible(root, selector, context) {
+      const element = requireElement(selector, root, context);
+      root.defaultView.dispatchEvent(new KeyboardEvent('keydown', {
+        key: 'Tab',
+        code: 'Tab',
+        bubbles: true
+      }));
+      element.focus({ preventScroll: true });
+      const isFocused = root.activeElement === element || element.matches(':focus') || element.matches(':focus-visible');
+      if (!isFocused) {
+        fail(`${context}: 元素未能获得焦点`);
+      }
+      const style = root.defaultView.getComputedStyle(element);
+      const outlineWidth = parsePxPx(style.outlineWidth || '0', `${context}: outlineWidth`);
+      const hasFocusIndicator = outlineWidth > 0 || style.outlineStyle !== 'none' || (style.boxShadow && style.boxShadow !== 'none');
+      const hasFocusVisible = element.matches(':focus-visible');
+      if (!hasFocusIndicator && !hasFocusVisible && !isFocused) {
+        fail(`${context}: focus-visible 可见性检查失败`);
+      }
+      return element;
+    }
+
+    function assertElementsExist(root, selectors, context) {
+      for (const selector of selectors) {
+        requireElement(selector, root, `${context}: ${selector}`);
+      }
+    }
+
+    async function waitForAppReady(frame, timeout = 20000) {
+      const doc = await waitForFrameReady(frame, timeout);
+      await waitFor(
+        () => doc.querySelector('#chat-input'),
+        'app ready (initial UI mounted)',
+        timeout
+      );
+      await waitFor(
+        () => doc.documentElement.dataset.appReady === 'true',
+        'app ready marker',
+        timeout
+      );
+      return doc;
+    }
+
+    async function waitForFrameReady(frame, timeout = 20000) {
+      const frameLabel = `iframe ${frame.id || 'app-frame'}`;
+      const targetPath = new URL(frame.src, window.location.href).pathname;
+
+      const readyDoc = () => {
+        const doc = frame.contentDocument;
+        if (!doc || !frame.contentWindow) return null;
+        const frameUrl = frame.contentWindow.location.href;
+        if (frameUrl === 'about:blank') return null;
+        const framePath = new URL(frameUrl, window.location.href).pathname;
+        if (framePath !== targetPath) return null;
+        return doc.readyState === 'interactive' || doc.readyState === 'complete' ? doc : null;
+      };
+
+      const existing = readyDoc();
+      if (existing) return existing;
+
+      const resolved = await new Promise((resolve) => {
+        const interval = setInterval(() => {
+          const loadedDoc = readyDoc();
+          if (loadedDoc) {
+            clearInterval(interval);
+            clearTimeout(timeoutHandle);
+            frame.removeEventListener('load', onLoad);
+            resolve(loadedDoc);
+          }
+        }, 25);
+
+        const onLoad = () => {
+          const loadedDoc = readyDoc();
+          if (loadedDoc) {
+            clearInterval(interval);
+            clearTimeout(timeoutHandle);
+            frame.removeEventListener('load', onLoad);
+            resolve(loadedDoc);
+          }
+        };
+
+        const timeoutHandle = setTimeout(() => {
+          clearInterval(interval);
+          frame.removeEventListener('load', onLoad);
+          resolve(null);
+        }, timeout);
+
+        frame.addEventListener('load', onLoad, { once: true });
+      });
+
+      if (!resolved) {
+        fail(`${frameLabel} 在 ${timeout}ms 内未完成加载，当前 readyState=${frame.contentDocument?.readyState || 'unavailable'}`);
+      }
+
+      return resolved;
     }
 
     async function waitFor(predicate, label, timeout = 15000) {
@@ -53,6 +271,22 @@
         await new Promise((resolve) => setTimeout(resolve, 50));
       }
       fail(`Timeout waiting for: ${label}`);
+    }
+
+    function getFreshStateSnapshot(doc) {
+      const messageArea = doc.querySelector('#chat-messages-inner');
+      if (!messageArea) return null;
+
+      if (messageArea.querySelector('.welcome-screen')) {
+        return { kind: 'welcome' };
+      }
+      if (doc.querySelector('.conversation-list__empty')) {
+        return { kind: 'list-empty' };
+      }
+      if (!doc.querySelector('.message--user')) {
+        return { kind: 'no-users' };
+      }
+      return null;
     }
 
     async function main() {
@@ -68,16 +302,52 @@
       }
 
       const frame = document.getElementById('app-frame');
-      await new Promise((resolve) => frame.addEventListener('load', resolve, { once: true }));
+      const frameLocation = new URL(frame.src, window.location.href);
+      if (frameLocation.pathname !== '/index.html') {
+        fail(`iframe src 应直接指向 /index.html，当前是 ${frameLocation.pathname}`);
+      }
 
-      const doc = frame.contentDocument;
+      const doc = await waitForAppReady(frame);
       const win = frame.contentWindow;
-      if (!doc || !win) fail('iframe not accessible');
+      if (!win) fail('iframe window not accessible');
       win.confirm = () => true;
       win.prompt = () => 'smokeTag';
 
-      await waitFor(() => doc.querySelector('#chat-input'), 'app init');
-      await waitFor(() => doc.querySelector('#theme-toggle')?.innerHTML.trim(), 'theme icon render');
+      const freshState = await waitFor(() => getFreshStateSnapshot(doc), 'fresh empty/welcome state');
+      const messageArea = doc.querySelector('#chat-messages-inner');
+      const isWelcomeVisible = freshState?.kind === 'welcome';
+      const isConversationListEmpty = freshState?.kind === 'list-empty' || freshState?.kind === 'no-users';
+      if (!isWelcomeVisible && !isConversationListEmpty) {
+        fail(`fresh state should show welcome screen 或对话列表空态，当前状态=${freshState?.kind || 'unknown'}`);
+      }
+      if (isWelcomeVisible) {
+        const welcomeCards = messageArea.querySelectorAll('.welcome-card');
+        if (!messageArea.querySelector('.welcome-screen__cards')) {
+          fail('welcome screen 的卡片区应存在');
+        }
+        if (welcomeCards.length === 0) {
+          fail('welcome screen 应包含至少一张快捷卡片');
+        }
+      }
+      await waitFor(() => safeInnerHTML('#theme-toggle', doc).trim(), 'theme icon render');
+      if (doc.querySelectorAll('.message--user').length > 0) {
+        fail('empty state 应为无消息；不应出现历史消息');
+      }
+
+      assertDesignRadiusConsistency(win, doc);
+      assertFocusVisible(doc, '#settings-btn', 'settings按钮 focus-visible');
+      assertElementsExist(doc, [
+        '#settings-modal',
+        '#settings-api-base-url',
+        '#settings-api-key',
+        '#settings-system-prompt',
+        '#settings-temperature',
+        '#settings-max-tokens',
+        '#settings-save-btn',
+        '#fetch-models-btn',
+        '#data-management-btn',
+        '#prompt-templates-btn',
+      ], '关键设置/配置控件');
 
       if (doc.querySelector('#settings-modal')?.getAttribute('aria-modal') !== 'true') {
         fail('settings modal should declare aria-modal');
@@ -86,26 +356,26 @@
         fail('model trigger should be bound to the listbox');
       }
       await waitFor(
-        () => doc.querySelector('#file-input')?.accept.includes('.tsx'),
+        () => safeAttr('#file-input', 'accept', doc).includes('.tsx'),
         'file input accept includes .tsx'
       );
-      const composer = doc.querySelector('.composer');
+      const composer = requireElement('.composer', doc, '检查主输入区域');
       if (!composer || !composer.contains(doc.querySelector('#upload-btn')) || !composer.contains(doc.querySelector('#send-btn'))) {
         fail('upload, textarea, and send controls should share one composer container');
       }
-      const composerFooter = doc.querySelector('.composer__footer');
+      const composerFooter = requireElement('.composer__footer', doc, '检查底部控制区');
       if (
         !composerFooter ||
-        !composerFooter.contains(doc.querySelector('#send-btn')) ||
-        !composerFooter.contains(doc.querySelector('#stop-btn'))
+        !composerFooter.contains(requireElement('#send-btn', doc, '检查发送按钮')) ||
+        !composerFooter.contains(requireElement('#stop-btn', doc, '检查停止按钮'))
       ) {
         fail('send and stop buttons should live directly in the composer footer');
       }
       if (doc.querySelector('#send-btn button') || doc.querySelector('#stop-btn button')) {
         fail('composer footer actions should not contain nested buttons');
       }
-      const textareaRect = doc.querySelector('#chat-input').getBoundingClientRect();
-      const sendRect = doc.querySelector('#send-btn').getBoundingClientRect();
+      const textareaRect = requireElement('#chat-input', doc, '读取输入框尺寸').getBoundingClientRect();
+      const sendRect = requireElement('#send-btn', doc, '读取发送按钮尺寸').getBoundingClientRect();
       if (!(sendRect.top >= textareaRect.bottom)) {
         fail('composer controls should place send below textarea');
       }
@@ -115,18 +385,21 @@
       if (sendRect.width < 36 || sendRect.width > 56) {
         fail('send button should be a compact circular action');
       }
-      if (!doc.querySelector('#send-btn')?.disabled) {
+      if (!requireElement('#send-btn', doc, '检查发送按钮禁用态').disabled) {
         fail('empty composer should disable the send button');
       }
-      click(doc.querySelector('#send-btn'));
+      if (requireElement('#send-btn', doc, '检查发送按钮 aria-disabled').getAttribute('aria-disabled') !== 'true') {
+        fail('empty composer should mark send button as aria-disabled');
+      }
+      clickBySelector('#send-btn', doc, '点击发送按钮（空消息）');
       await new Promise((resolve) => setTimeout(resolve, 100));
       if (doc.querySelectorAll('.message--user').length !== 0) {
         fail('disabled send button should not send an empty message');
       }
       frame.style.width = '390px';
       await new Promise((resolve) => setTimeout(resolve, 50));
-      const mobileFooterRect = doc.querySelector('.composer__footer').getBoundingClientRect();
-      const mobileSendRect = doc.querySelector('#send-btn').getBoundingClientRect();
+      const mobileFooterRect = requireElement('.composer__footer', doc, '读取移动端底部控制区').getBoundingClientRect();
+      const mobileSendRect = requireElement('#send-btn', doc, '读取移动端发送按钮').getBoundingClientRect();
       if (mobileSendRect.width > mobileFooterRect.width + 1 || mobileSendRect.right > mobileFooterRect.right + 1) {
         fail('mobile send button should fit inside the composer footer');
       }
@@ -136,22 +409,35 @@
       frame.style.width = '1280px';
       await new Promise((resolve) => setTimeout(resolve, 50));
 
-      click(doc.querySelector('#settings-btn'));
+      clickBySelector('#settings-btn', doc, '打开设置面板');
       await waitFor(
         () => doc.querySelector('#settings-modal')?.classList.contains('visible'),
         'settings modal open'
       );
+      assertElementsExist(doc, [
+        '#settings-api-base-url',
+        '#settings-api-key',
+        '#settings-system-prompt',
+        '#settings-temperature',
+        '#settings-max-tokens',
+        '#temp-value',
+        '#settings-save-btn',
+        '#fetch-models-btn',
+        '#settings-system-prompt-desc',
+        '#settings-temperature-desc',
+        '#settings-max-tokens-desc'
+      ], 'settings surface key selectors');
 
-      inputValue(doc.querySelector('#settings-api-base-url'), 'http://127.0.0.1:11434/v1');
-      inputValue(doc.querySelector('#settings-api-key'), 'smoke-key');
-      click(doc.querySelector('#fetch-models-btn'));
+      inputBySelector('#settings-api-base-url', 'http://127.0.0.1:11434/v1', doc, '填写 API Base URL');
+      inputBySelector('#settings-api-key', 'smoke-key', doc, '填写 API Key');
+      clickBySelector('#fetch-models-btn', doc, '点击获取模型按钮');
 
       await waitFor(
         () => doc.body.textContent.includes('已获取 3 个可用模型'),
         'save config and fetch models toast'
       );
       await waitFor(
-        () => doc.querySelector('#settings-api-key')?.value === '',
+        () => safeValue('#settings-api-key', doc) === '',
         'api key field cleared after config save'
       );
       const storedSettingsAfterConfig = JSON.parse(win.localStorage.getItem('ai_chat_settings') || '{}');
@@ -159,18 +445,18 @@
         fail('localStorage settings should not contain apiKey');
       }
 
-      click(doc.querySelector('#settings-modal .modal__close'));
+      clickBySelector('#settings-modal .modal__close', doc, '关闭设置弹窗');
       await waitFor(
         () => doc.querySelector('#settings-modal')?.getAttribute('aria-hidden') === 'true',
         'settings modal close'
       );
 
-      click(doc.querySelector('#settings-btn'));
+      clickBySelector('#settings-btn', doc, '再次打开设置面板');
       await waitFor(
         () => doc.querySelector('#settings-modal')?.classList.contains('visible'),
         'settings modal reopen'
       );
-      click(doc.querySelector('#settings-save-btn'));
+      clickBySelector('#settings-save-btn', doc, '点击设置保存');
 
       await waitFor(
         () => JSON.parse(win.localStorage.getItem('ai_chat_settings') || '{}').apiBaseUrl === 'http://127.0.0.1:11434',
@@ -180,66 +466,68 @@
         fail('settings save should not persist apiKey');
       }
 
-      click(doc.querySelector('#model-trigger'));
+      clickBySelector('#model-trigger', doc, '打开模型选择器');
       await waitFor(
-        () => doc.querySelector('#model-trigger')?.getAttribute('aria-expanded') === 'true',
+        () => requireElement('#model-trigger', doc, '等待模型选择器展开').getAttribute('aria-expanded') === 'true',
         'model selector expanded'
       );
       await waitFor(
         () => Array.from(doc.querySelectorAll('.model-selector__item')).some((item) => item.textContent.includes('Smoke Standard')),
         'mock model option render'
       );
-      const thinkingOption = findByText('.model-selector__item', 'Smoke Thinking', doc);
+      const thinkingOption = findByTextOrFail('.model-selector__item', 'Smoke Thinking', doc, '模型选项');
       if (!thinkingOption) {
         fail('mock thinking model option should render');
       }
       click(thinkingOption);
       await waitFor(
-        () => doc.querySelector('#model-trigger')?.textContent.includes('Smoke Thinking'),
+        () => safeText('#model-trigger', doc).includes('Smoke Thinking'),
         'thinking model selected'
       );
-      click(doc.querySelector('#model-trigger'));
+      clickBySelector('#model-trigger', doc, '再次打开模型选择器');
       await waitFor(
         () => doc.querySelector('#model-trigger')?.getAttribute('aria-expanded') === 'true',
         'model selector expanded again'
       );
-      click(findByText('.model-selector__item', 'Smoke Standard', doc));
+      click(findByTextOrFail('.model-selector__item', 'Smoke Standard', doc, '模型选项'));
       await waitFor(
-        () => doc.querySelector('#model-trigger')?.getAttribute('aria-expanded') === 'false',
+        () => requireElement('#model-trigger', doc, '等待模型选择器收起').getAttribute('aria-expanded') === 'false',
         'model selector collapsed'
       );
 
-      click(doc.querySelector('#new-chat-btn'));
-      click(doc.querySelector('#model-trigger'));
+      clickBySelector('#new-chat-btn', doc, '开启新对话');
+      clickBySelector('#model-trigger', doc, '打开模型选择器');
       await waitFor(
-        () => doc.querySelector('#model-trigger')?.getAttribute('aria-expanded') === 'true',
+        () => requireElement('#model-trigger', doc, '等待模型选择器打开').getAttribute('aria-expanded') === 'true',
         'model selector open for conversation model test'
       );
-      click(findByText('.model-selector__item', 'Smoke Thinking', doc));
+      click(findByTextOrFail('.model-selector__item', 'Smoke Thinking', doc, '模型选项'));
       await waitFor(
-        () => doc.querySelector('#model-trigger')?.textContent.includes('Smoke Thinking'),
+        () => safeText('#model-trigger', doc).includes('Smoke Thinking'),
         'conversation model set to thinking'
       );
-      inputValue(doc.querySelector('#chat-input'), 'echo model first');
-      click(doc.querySelector('#send-btn'));
+      inputBySelector('#chat-input', 'echo model first', doc, '填写第一条对话消息');
+      assertFocusVisible(doc, '#chat-input', '发送前输入框 focus-visible');
+      assertFocusVisible(doc, '#send-btn', '发送按钮 focus-visible');
+      clickBySelector('#send-btn', doc, '发送第一条消息');
       await waitFor(
         () => Array.from(doc.querySelectorAll('.message--ai .message__content')).some((node) => node.textContent.includes('model: smoke-thinking')),
         'thinking model stays on chat completions for first conversation'
       );
 
-      click(doc.querySelector('#new-chat-btn'));
-      click(doc.querySelector('#model-trigger'));
+      clickBySelector('#new-chat-btn', doc, '开启第二段对话');
+      clickBySelector('#model-trigger', doc, '打开模型选择器');
       await waitFor(
-        () => doc.querySelector('#model-trigger')?.getAttribute('aria-expanded') === 'true',
+        () => requireElement('#model-trigger', doc, '等待模型选择器展开').getAttribute('aria-expanded') === 'true',
         'model selector open for standard conversation'
       );
-      click(findByText('.model-selector__item', 'Smoke Standard', doc));
+      click(findByTextOrFail('.model-selector__item', 'Smoke Standard', doc, '模型选项'));
       await waitFor(
-        () => doc.querySelector('#model-trigger')?.textContent.includes('Smoke Standard'),
+        () => safeText('#model-trigger', doc).includes('Smoke Standard'),
         'standard model selected'
       );
-      inputValue(doc.querySelector('#chat-input'), 'echo model standard');
-      click(doc.querySelector('#send-btn'));
+      inputBySelector('#chat-input', 'echo model standard', doc, '填写第二条对话消息');
+      clickBySelector('#send-btn', doc, '发送标准模型消息');
       await waitFor(
         () => Array.from(doc.querySelectorAll('.message--ai .message__content')).some((node) => node.textContent.includes('model: smoke-standard')),
         'standard model used for second conversation'
@@ -251,85 +539,95 @@
       }
       click(thinkingConversation);
       await waitFor(
-        () => doc.querySelector('#model-trigger')?.textContent.includes('Smoke Thinking'),
+        () => safeText('#model-trigger', doc).includes('Smoke Thinking'),
         'switching conversation restores its model'
       );
-      inputValue(doc.querySelector('#chat-input'), 'echo model after switch');
-      click(doc.querySelector('#send-btn'));
+      inputBySelector('#chat-input', 'echo model after switch', doc, '继续发送历史对话消息');
+      clickBySelector('#send-btn', doc, '发送跟进消息');
       await waitFor(
         () => Array.from(doc.querySelectorAll('.message--ai .message__content'))
           .filter((node) => node.textContent.includes('model: smoke-thinking')).length >= 2,
         'restored thinking conversation keeps its chat-completions model for follow-up'
       );
 
-      click(doc.querySelector('#model-trigger'));
+      clickBySelector('#model-trigger', doc, '打开模型选择器');
       await waitFor(
         () => doc.querySelector('#model-trigger')?.getAttribute('aria-expanded') === 'true',
         'model selector open before standard chat'
       );
-      click(findByText('.model-selector__item', 'Smoke Standard', doc));
+      click(findByTextOrFail('.model-selector__item', 'Smoke Standard', doc, '模型选项'));
       await waitFor(
-        () => doc.querySelector('#model-trigger')?.textContent.includes('Smoke Standard'),
+        () => safeText('#model-trigger', doc).includes('Smoke Standard'),
         'standard model restored before basic chat'
       );
 
-      click(doc.querySelector('#new-chat-btn'));
-      inputValue(doc.querySelector('#chat-input'), 'hello smoke');
-      click(doc.querySelector('#send-btn'));
+      clickBySelector('#new-chat-btn', doc, '开启新会话');
+      inputBySelector('#chat-input', 'hello smoke', doc, '输入基础测试消息');
+      clickBySelector('#send-btn', doc, '发送基础测试消息');
       await waitFor(
         () => Array.from(doc.querySelectorAll('.message--ai .message__content')).some((node) => node.textContent.includes('Smoke test reply')),
         'basic AI reply'
       );
 
-      click(doc.querySelector('#input-template-btn'));
+      clickBySelector('#input-template-btn', doc, '打开模板弹窗');
       await waitFor(
         () => doc.querySelector('#prompt-templates-modal')?.classList.contains('visible'),
         'prompt templates modal open'
       );
-      inputValue(doc.querySelector('#prompt-template-name'), 'Smoke Template');
-      inputValue(doc.querySelector('#prompt-template-content'), 'Template body {{text}}');
-      doc.querySelector('#prompt-template-form').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      inputBySelector('#prompt-template-name', 'Smoke Template', doc, '填写模板标题');
+      inputBySelector('#prompt-template-content', 'Template body {{text}}', doc, '填写模板内容');
+      dispatchBySelector('#prompt-template-form', new Event('submit', { bubbles: true, cancelable: true }), doc, '提交模板表单');
       await waitFor(
         () => findByText('.template-item', 'Smoke Template', doc),
         'custom template rendered'
       );
       const smokeTemplate = findByText('.template-item', 'Smoke Template', doc);
-      click(smokeTemplate.querySelector('[data-template-action="insert"]'));
+      if (!smokeTemplate) {
+        fail('smoke template item should render');
+      }
+      click(requireElement('[data-template-action="insert"]', smokeTemplate, '插入模板按钮'));
       await waitFor(
-        () => doc.querySelector('#chat-input')?.value.includes('Template body {{text}}'),
+        () => safeValue('#chat-input', doc).includes('Template body {{text}}'),
         'template inserted into input'
       );
-      inputValue(doc.querySelector('#chat-input'), '');
+      inputBySelector('#chat-input', '', doc, '清空输入框');
 
       const activeHelloConversation = findByText('.conversation-item.active', 'hello smoke', doc);
       if (!activeHelloConversation) {
         fail('hello smoke conversation should be active');
       }
-      click(activeHelloConversation.querySelector('.conversation-item__pin'));
+      click(requireElement('.conversation-item__pin', activeHelloConversation, '固定对话按钮'));
       await waitFor(
         () => findByText('.conversation-item', 'hello smoke', doc)?.querySelector('.conversation-item__pin')?.getAttribute('aria-pressed') === 'true',
         'conversation pinned'
       );
-      click(findByText('.conversation-item', 'hello smoke', doc).querySelector('.conversation-item__tags-btn'));
+      click(requireElement(
+        '.conversation-item__tags-btn',
+        findByTextOrFail('.conversation-item', 'hello smoke', doc, '会话条目'),
+        '打开会话标签按钮'
+      ));
       await waitFor(
         () => findByText('.conversation-item', '#smokeTag', doc),
         'conversation tag rendered'
       );
-      inputValue(doc.querySelector('#sidebar-search'), '#smokeTag');
+      inputBySelector('#sidebar-search', '#smokeTag', doc, '输入标签搜索');
       await waitFor(
         () => doc.querySelectorAll('.conversation-item').length === 1 && findByText('.conversation-item', 'hello smoke', doc),
         'tag search filters conversations'
       );
-      inputValue(doc.querySelector('#sidebar-search'), '');
+      inputBySelector('#sidebar-search', '', doc, '清空标签搜索');
 
       const aiCountBeforeSpecial = doc.querySelectorAll('.message--ai .message__content').length;
-      inputValue(doc.querySelector('#chat-input'), 'copy <div>&" check');
-      click(doc.querySelector('#send-btn'));
+      inputBySelector('#chat-input', 'copy <div>&" check', doc, '输入特殊字符消息');
+      clickBySelector('#send-btn', doc, '发送特殊字符消息');
       await waitFor(
         () => findByText('.message--user', 'copy <div>&" check', doc),
         'special character user message rendered'
       );
       const specialUserMessage = findByText('.message--user', 'copy <div>&" check', doc);
+      if (!specialUserMessage) {
+        fail('special character message should render');
+      }
       const userCopyButton = specialUserMessage?.querySelector('[data-action="copy"]');
       if (userCopyButton?.dataset.content !== 'copy <div>&" check') {
         fail('user copy data should preserve raw special characters');
@@ -338,9 +636,12 @@
         () => doc.querySelectorAll('.message--ai .message__content').length > aiCountBeforeSpecial,
         'special character message gets a completed reply'
       );
+      if (!userCopyButton) {
+        fail('user message copy action should render');
+      }
       userCopyButton.focus();
       await waitFor(
-        () => win.getComputedStyle(specialUserMessage.querySelector('.message__actions')).opacity === '1',
+        () => win.getComputedStyle(requireElement('.message__actions', specialUserMessage, '检查消息操作按钮')).opacity === '1',
         'message actions visible on keyboard focus'
       );
 
@@ -350,12 +651,12 @@
       if (!doc.querySelector('#web-search-toggle')?.disabled) {
         fail('chat-only standard model should disable web search');
       }
-      doc.querySelector('#web-search-toggle').checked = true;
-      doc.querySelector('#web-search-toggle').dispatchEvent(new Event('change', { bubbles: true }));
+      requireElement('#web-search-toggle', doc, '开启网络搜索').checked = true;
+      dispatchBySelector('#web-search-toggle', new Event('change', { bubbles: true }), doc, '确认网络搜索切换');
       if (doc.querySelector('#web-search-toggle')?.checked) {
         fail('disabled web search toggle should remain unchecked for chat-only model');
       }
-      click(doc.querySelector('#model-trigger'));
+      clickBySelector('#model-trigger', doc, '打开模型选择器');
       const responsesOptionForSearch = await waitFor(
         () => findByText('.model-selector__item', 'GPT 5.5 Smoke', doc),
         'responses-capable model option for search'
@@ -365,10 +666,10 @@
         () => !doc.querySelector('#web-search-toggle')?.disabled,
         'responses-capable model enables web search'
       );
-      doc.querySelector('#web-search-toggle').checked = true;
-      doc.querySelector('#web-search-toggle').dispatchEvent(new Event('change', { bubbles: true }));
-      inputValue(doc.querySelector('#chat-input'), 'web search check');
-      click(doc.querySelector('#send-btn'));
+      requireElement('#web-search-toggle', doc, '切换网络搜索开关').checked = true;
+      dispatchBySelector('#web-search-toggle', new Event('change', { bubbles: true }), doc, '确认网络搜索切换');
+      inputBySelector('#chat-input', 'web search check', doc, '输入搜索验证消息');
+      clickBySelector('#send-btn', doc, '发送搜索验证消息');
       await waitFor(
         () => Array.from(doc.querySelectorAll('.message--ai .message__content')).some((node) => node.textContent.includes('Responses search reply')),
         'web search responses reply'
@@ -377,36 +678,61 @@
         () => Array.from(doc.querySelectorAll('.message--ai .message__content')).some((node) => node.textContent.includes('Example Source')),
         'responses citation rendered'
       );
-      doc.querySelector('#web-search-toggle').checked = false;
-      doc.querySelector('#web-search-toggle').dispatchEvent(new Event('change', { bubbles: true }));
+      requireElement('#web-search-toggle', doc, '关闭网络搜索开关').checked = false;
+      dispatchBySelector('#web-search-toggle', new Event('change', { bubbles: true }), doc, '确认关闭网络搜索');
 
       await waitFor(
         () => !doc.querySelector('#reasoning-effort-select')?.disabled,
         'responses-capable model enables reasoning depth'
       );
-      inputValue(doc.querySelector('#reasoning-effort-select'), 'high');
-      inputValue(doc.querySelector('#chat-input'), 'reasoning check');
-      click(doc.querySelector('#send-btn'));
+      inputBySelector('#reasoning-effort-select', 'high', doc, '设置推理强度');
+      inputBySelector('#chat-input', 'reasoning check', doc, '输入推理验证消息');
+      clickBySelector('#send-btn', doc, '发送推理验证消息');
       await waitFor(
         () => Array.from(doc.querySelectorAll('.message--ai .message__content')).some((node) => node.textContent.includes('reasoning: high')),
         'reasoning effort forwarded to responses'
       );
-      click(doc.querySelector('#model-trigger'));
+      clickBySelector('#model-trigger', doc, '打开模型选择器');
       const standardOption = await waitFor(
         () => findByText('.model-selector__item', 'Smoke Standard', doc),
         'standard model option'
       );
       click(standardOption);
 
-      click(doc.querySelector('#new-chat-btn'));
-      inputValue(doc.querySelector('#chat-input'), 'slow response please');
-      click(doc.querySelector('#send-btn'));
+      clickBySelector('#new-chat-btn', doc, '开启慢回复对话');
+      inputBySelector('#chat-input', 'slow response please', doc, '输入慢回复消息');
+      clickBySelector('#send-btn', doc, '发送慢回复消息');
+      await waitFor(
+        () => {
+          const loadingVisible = Boolean(doc.querySelector('.loading-indicator'));
+          const stopVisible = !doc.querySelector('#stop-btn')?.classList.contains('hidden');
+          return loadingVisible || stopVisible;
+        },
+        'loading indicator or stop state visible after slow send'
+      );
       await waitFor(
         () => !doc.querySelector('#stop-btn')?.classList.contains('hidden'),
         'stop button visible'
       );
-      const activeStopRect = doc.querySelector('#stop-btn').getBoundingClientRect();
-      if (!doc.querySelector('#send-btn')?.classList.contains('hidden')) {
+      if (requireElement('.chat-area', doc, '检查生成中 aria-busy').getAttribute('aria-busy') !== 'true') {
+        fail('chat area should expose aria-busy while generating');
+      }
+      if (safeText('#composer-status', doc).trim() === '') {
+        fail('composer should announce generating state to screen readers');
+      }
+      if (requireElement('#stop-btn', doc, '检查停止按钮 aria-hidden').getAttribute('aria-hidden') !== 'false') {
+        fail('visible stop button should not be aria-hidden');
+      }
+      if (requireElement('#send-btn', doc, '检查发送按钮 aria-hidden').getAttribute('aria-hidden') !== 'true') {
+        fail('hidden send button should be aria-hidden while stop is visible');
+      }
+      await attachTextFileDuringSmoke(win, doc, 'queued-during-stream.txt', 'queued while streaming');
+      if (!requireElement('#send-btn', doc, '检查流式期间发送按钮禁用态').disabled) {
+        fail('send button should stay disabled while streaming even when an attachment is queued');
+      }
+      assertFocusVisible(doc, '#stop-btn', '停止按钮 focus-visible');
+      const activeStopRect = requireElement('#stop-btn', doc, '读取停止按钮').getBoundingClientRect();
+      if (!requireElement('#send-btn', doc, '检查发送按钮显示状态').classList.contains('hidden')) {
         fail('send button should be hidden while stop button is visible');
       }
       if (activeStopRect.width < 96) {
@@ -416,10 +742,30 @@
         () => Array.from(doc.querySelectorAll('.message--ai .message__content')).some((node) => node.textContent.includes('Partial')),
         'partial response visible'
       );
-      click(doc.querySelector('.stop-btn__label'));
+      clickBySelector('.stop-btn__label', doc, '点击停止按钮');
+      await waitFor(
+        () => !doc.querySelector('.loading-indicator'),
+        'loading indicator hidden after stop'
+      );
+      await waitFor(
+        () => doc.querySelector('#stop-btn')?.classList.contains('hidden'),
+        'stop button should return hidden after abort'
+      );
+      if (requireElement('#send-btn', doc, '检查发送按钮显示状态').classList.contains('hidden')) {
+        fail('send button should reappear after stop');
+      }
+      if (requireElement('#send-btn', doc, '检查附件态发送按钮恢复').disabled) {
+        fail('send button should re-enable after stop when an attachment is queued');
+      }
+      if (requireElement('.chat-area', doc, '检查停止后 aria-busy').getAttribute('aria-busy') !== 'false') {
+        fail('chat area should clear aria-busy after stop');
+      }
+      if (safeText('#composer-status', doc).trim() !== '') {
+        fail('composer status should clear after stop');
+      }
 
-      inputValue(doc.querySelector('#chat-input'), 'follow up after stop');
-      click(doc.querySelector('#send-btn'));
+      inputBySelector('#chat-input', 'follow up after stop', doc, '输入中断后消息');
+      clickBySelector('#send-btn', doc, '发送中断后消息');
 
       await waitFor(
         () => doc.querySelectorAll('.message--user').length >= 2,
@@ -434,7 +780,7 @@
         'stop button hidden after follow-up completes'
       );
 
-      click(doc.querySelector('#new-chat-btn'));
+      clickBySelector('#new-chat-btn', doc, '恢复到新对话');
       await waitFor(
         () => doc.querySelectorAll('.conversation-item').length >= 2,
         'conversation list updated'
@@ -449,7 +795,7 @@
         () => findByText('.conversation-item.active', 'slow response please', doc),
         'previous conversation active in sidebar'
       );
-      const deleteButton = activePreviousConversation.querySelector('.conversation-item__delete');
+      const deleteButton = requireElement('.conversation-item__delete', activePreviousConversation, '获取会话删除按钮');
       deleteButton.focus();
       await waitFor(
         () => win.getComputedStyle(deleteButton).opacity === '1',
@@ -487,19 +833,19 @@
         fail('backup settings should not contain apiKey');
       }
 
-      click(doc.querySelector('#clear-all-btn'));
+      clickBySelector('#clear-all-btn', doc, '清空全部会话');
       await waitFor(
         () => doc.querySelector('#confirm-modal')?.classList.contains('visible'),
         'clear all confirmation visible'
       );
-      click(doc.querySelector('#confirm-ok-btn'));
+      clickBySelector('#confirm-ok-btn', doc, '确认清空');
       await waitFor(
         () => doc.querySelectorAll('.conversation-item').length === 0,
         'conversations cleared before import'
       );
       win.localStorage.removeItem('ai_chat_prompt_templates');
 
-      click(doc.querySelector('#data-management-btn'));
+      clickBySelector('#data-management-btn', doc, '打开数据管理');
       await waitFor(
         () => doc.querySelector('#data-management-modal')?.classList.contains('visible'),
         'data management modal open'
@@ -507,19 +853,30 @@
       const file = new win.File([JSON.stringify(backup)], 'backup.json', { type: 'application/json' });
       const transfer = new win.DataTransfer();
       transfer.items.add(file);
-      const importInput = doc.querySelector('#import-data-input');
+      const importInput = requireElement('#import-data-input', doc, '获取导入输入框');
       importInput.files = transfer.files;
-      importInput.dispatchEvent(new Event('change', { bubbles: true }));
+      dispatchBySelector('#import-data-input', new Event('change', { bubbles: true }), doc, '触发导入');
       await waitFor(
         () => findByText('.conversation-item', 'hello smoke', doc),
         'conversation restored after data import'
       );
-      click(doc.querySelector('#data-management-modal .modal__close'));
-      click(doc.querySelector('#prompt-templates-btn'));
+      clickBySelector('#data-management-modal .modal__close', doc, '关闭数据管理弹窗');
+      clickBySelector('#prompt-templates-btn', doc, '打开模板管理');
       await waitFor(
         () => findByText('.template-item', 'Smoke Template', doc),
         'custom template restored after data import'
       );
+      assertElementsExist(doc, [
+        '#data-management-modal',
+        '#export-all-data-btn',
+        '#import-data-input',
+        '#import-data-btn',
+        '#prune-conversation-limit',
+        '#prune-conversations-btn',
+        '#prompt-templates-modal',
+        '#prompt-template-form',
+        '#prompt-template-list',
+      ], '数据/模板管理关键选择器');
 
       document.body.dataset.smokeResult = 'pass';
       log('PASS');

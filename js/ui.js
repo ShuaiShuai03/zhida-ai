@@ -257,6 +257,8 @@ function renderWelcomeScreen(container) {
       <span class="welcome-card__text">${escapeHTML(p.text)}</span>
     </button>`
   ).join('');
+  const backendStatus = getWelcomeBackendStatus();
+  const backendStatusClass = getWelcomeStatusClass(backendStatus.badge);
 
   container.innerHTML = `
     <div class="welcome-screen">
@@ -271,9 +273,93 @@ function renderWelcomeScreen(container) {
         <span class="badge ${model.badgeClass}">${model.badge}</span>
         ${escapeHTML(model.name)}
       </div>
+      <div id="welcome-backend-status-wrap" class="welcome-screen__backend-status welcome-screen__backend-status--${backendStatusClass}">
+        <div class="welcome-screen__backend-status-row">
+          <span id="welcome-backend-status-badge" class="welcome-screen__backend-status-badge">${escapeHTML(backendStatus.title)}</span>
+          <span class="welcome-screen__backend-sep">|</span>
+          <span class="welcome-screen__backend-state">${escapeHTML(backendStatus.stateText)}</span>
+        </div>
+        <p id="welcome-backend-status" class="welcome-screen__backend-status-message">
+          ${escapeHTML(backendStatus.message)}
+        </p>
+        <button id="welcome-open-settings-btn" type="button" class="btn btn--secondary" aria-label="打开设置">
+          打开设置
+        </button>
+      </div>
       <div class="welcome-screen__cards">${cards}</div>
     </div>
   `;
+}
+
+function getWelcomeBackendStatus() {
+  if (state.backendAvailable === false) {
+    return {
+      title: '后端状态',
+      stateText: '静态服务器',
+      message: state.backendError || '当前是纯静态服务器，缺少 Node 后端代理，不能保存 API key、获取模型或聊天。',
+      badge: 'error',
+    };
+  }
+
+  if (state.backendAvailable === true && state.isApiConfigured) {
+    const displayedEndpoint = formatApiBaseUrlForDisplay(state.apiBaseUrl);
+    const configuredEndpoint = displayedEndpoint ? `，当前地址 ${displayedEndpoint}` : '';
+    return {
+      title: '后端状态',
+      stateText: '后端可用 · 已配置',
+      message: `后端代理已可用${configuredEndpoint}，可直接开始对话。`,
+      badge: 'configured',
+    };
+  }
+
+  if (state.backendAvailable === true) {
+    return {
+      title: '后端状态',
+      stateText: '后端可用',
+      message: '后端已就绪，但尚未配置 API 地址与密钥。请先打开设置完成配置。',
+      badge: 'ready',
+    };
+  }
+
+  return {
+    title: '后端状态',
+    stateText: '检测中',
+    message: '正在检测后端运行状态，请稍候…',
+    badge: 'loading',
+  };
+}
+
+function formatApiBaseUrlForDisplay(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  try {
+    const url = new URL(raw);
+    url.username = '';
+    url.password = '';
+    url.search = '';
+    url.hash = '';
+    return url.toString().replace(/\/+$/, '');
+  } catch {
+    return '';
+  }
+}
+
+function getWelcomeStatusClass(value) {
+  return ['error', 'configured', 'ready', 'loading'].includes(value) ? value : 'loading';
+}
+
+export function updateWelcomeBackendStatus() {
+  const statusWrap = $('#welcome-backend-status-wrap');
+  const statusBadge = $('#welcome-backend-status-badge');
+  const statusState = $('#welcome-backend-status-wrap .welcome-screen__backend-state');
+  const statusText = $('#welcome-backend-status');
+  if (!statusWrap || !statusBadge || !statusState || !statusText) return;
+
+  const status = getWelcomeBackendStatus();
+  statusWrap.className = `welcome-screen__backend-status welcome-screen__backend-status--${getWelcomeStatusClass(status.badge)}`;
+  statusBadge.textContent = status.title;
+  statusState.textContent = status.stateText;
+  statusText.textContent = status.message;
 }
 
 /**
@@ -307,6 +393,8 @@ function createMessageElement(msg) {
     }
   } else if (msg.role === 'error') {
     wrapper.className = 'message message--error';
+    wrapper.setAttribute('role', 'alert');
+    wrapper.setAttribute('aria-live', 'assertive');
     wrapper.innerHTML = `
       <div class="message__avatar" aria-hidden="true">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
@@ -387,6 +475,8 @@ export function createStreamingMessage() {
 
   const wrapper = document.createElement('div');
   wrapper.className = 'message message--ai';
+  wrapper.setAttribute('aria-live', 'polite');
+  wrapper.setAttribute('aria-busy', 'true');
   wrapper.innerHTML = `
     <div class="message__avatar" aria-hidden="true">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
@@ -402,7 +492,7 @@ export function createStreamingMessage() {
         </div>
       </div>
       <div class="message__content streaming-content">
-        <div class="loading-indicator">
+        <div class="loading-indicator" role="status" aria-label="正在生成回复">
           <span class="loading-indicator__dot"></span>
           <span class="loading-indicator__dot"></span>
           <span class="loading-indicator__dot"></span>
@@ -455,6 +545,7 @@ export function createStreamingMessage() {
     },
 
     finalize() {
+      wrapper.setAttribute('aria-busy', 'false');
       contentEl.classList.remove('streaming-cursor');
       statusEl?.classList.add('hidden');
 
@@ -562,6 +653,7 @@ export function updateSendButton(enabled) {
   const btn = $('#send-btn');
   if (btn) {
     btn.disabled = !enabled;
+    btn.setAttribute('aria-disabled', String(!enabled));
   }
 }
 
@@ -572,8 +664,22 @@ export function updateSendButton(enabled) {
 export function showStopButton(show) {
   const sendBtn = $('#send-btn');
   const stopBtn = $('#stop-btn');
+  const chatArea = $('.chat-area');
+  const composerStatus = $('#composer-status');
   if (sendBtn) sendBtn.classList.toggle('hidden', show);
-  if (stopBtn) stopBtn.classList.toggle('hidden', !show);
+  if (stopBtn) {
+    stopBtn.classList.toggle('hidden', !show);
+    stopBtn.setAttribute('aria-hidden', String(!show));
+  }
+  if (sendBtn) {
+    sendBtn.setAttribute('aria-hidden', String(show));
+  }
+  if (chatArea) {
+    chatArea.setAttribute('aria-busy', String(show));
+  }
+  if (composerStatus) {
+    composerStatus.textContent = show ? '正在生成回复，可使用停止生成按钮中断。' : '';
+  }
 }
 
 // ============================================

@@ -26,7 +26,7 @@
   font-weight: 700;
   color: var(--color-text-primary);
   margin-bottom: var(--space-2);
-  letter-spacing: -0.5px;
+  letter-spacing: 0;
 }
 
 .welcome-screen__subtitle {
@@ -46,6 +46,90 @@
   color: var(--color-primary);
   font-weight: 500;
   margin-bottom: var(--space-7);
+}
+
+.welcome-screen__backend-status {
+  display: grid;
+  gap: var(--space-3);
+  width: 100%;
+  margin-bottom: var(--space-6);
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-soft);
+  text-align: left;
+}
+
+.welcome-screen__backend-status-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.welcome-screen__backend-status-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-full);
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+}
+
+.welcome-screen__backend-sep {
+  color: var(--color-text-tertiary);
+}
+
+.welcome-screen__backend-state {
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+.welcome-screen__backend-status-message {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-base);
+}
+
+.welcome-screen__backend-status .btn {
+  justify-self: start;
+}
+
+.welcome-screen__backend-status--error {
+  border-color: color-mix(in srgb, var(--color-error) 28%, var(--color-border) 72%);
+  background: var(--color-error-bg);
+}
+
+.welcome-screen__backend-status--error .welcome-screen__backend-status-badge {
+  background: var(--color-error-bg);
+  color: var(--color-error-strong);
+}
+
+.welcome-screen__backend-status--configured {
+  border-color: color-mix(in srgb, var(--color-success) 24%, var(--color-border) 76%);
+  background: var(--color-success-bg);
+}
+
+.welcome-screen__backend-status--configured .welcome-screen__backend-status-badge {
+  background: var(--color-success-bg);
+  color: var(--color-success-text);
+}
+
+.welcome-screen__backend-status--ready {
+  border-color: color-mix(in srgb, var(--color-info) 24%, var(--color-border) 76%);
+  background: var(--color-info-bg);
+}
+
+.welcome-screen__backend-status--ready .welcome-screen__backend-status-badge,
+.welcome-screen__backend-status--loading .welcome-screen__backend-status-badge {
+  background: var(--color-info-bg);
+  color: var(--color-info-text);
 }
 
 .welcome-screen__cards {
@@ -76,6 +160,22 @@
   border-color: var(--color-primary);
   box-shadow: var(--shadow-md);
   transform: translateY(-2px);
+}
+
+.welcome-card:focus-visible {
+  outline: none;
+  border-color: var(--color-border-focus);
+  box-shadow: var(--shadow-outline);
+}
+
+.welcome-card:active {
+  transform: translateY(0);
+}
+
+.welcome-card:disabled {
+  opacity: var(--opacity-disabled);
+  cursor: not-allowed;
+  transform: none;
 }
 
 .welcome-card__icon {
@@ -292,7 +392,7 @@
 .thinking-block {
   margin-bottom: var(--space-3);
   border-left: 3px solid var(--color-thinking-border);
-  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  border-radius: var(--radius-md);
   background: var(--color-thinking-bg);
   overflow: hidden;
   transition: margin var(--transition-fast);
@@ -446,7 +546,7 @@
   padding: var(--space-2) var(--space-4);
   margin: 0.75em 0;
   background: var(--color-primary-soft);
-  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  border-radius: var(--radius-sm);
   color: var(--color-text-secondary);
 }
 

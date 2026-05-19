@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="420" viewBox="0 0 1280 420" role="img" aria-labelledby="title desc">
+  <title id="title">智答 AI 产品横幅</title>
+  <desc id="desc">彩色渐变背景上的智答 AI 聊天界面和同源代理安全边界示意。</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0f172a"/>
+      <stop offset="0.28" stop-color="#2563eb"/>
+      <stop offset="0.58" stop-color="#7c3aed"/>
+      <stop offset="1" stop-color="#f97316"/>
+    </linearGradient>
+    <linearGradient id="panel" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.96"/>
+      <stop offset="1" stop-color="#eef2ff" stop-opacity="0.92"/>
+    </linearGradient>
+    <linearGradient id="bubble" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#38bdf8"/>
+      <stop offset="1" stop-color="#818cf8"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="22" stdDeviation="24" flood-color="#020617" flood-opacity="0.28"/>
+    </filter>
+  </defs>
+  <rect width="1280" height="420" rx="36" fill="url(#bg)"/>
+  <path d="M0 310C160 260 230 372 380 330C560 280 585 130 760 154C920 176 968 292 1122 248C1192 228 1238 190 1280 178V420H0Z" fill="#ffffff" opacity="0.12"/>
+  <circle cx="106" cy="76" r="58" fill="#fef3c7" opacity="0.32"/>
+  <circle cx="1152" cy="94" r="78" fill="#cffafe" opacity="0.22"/>
+  <circle cx="948" cy="350" r="42" fill="#bbf7d0" opacity="0.22"/>
+  <g transform="translate(74 62)">
+    <rect x="0" y="0" width="432" height="296" rx="28" fill="#020617" opacity="0.24"/>
+    <text x="0" y="48" fill="#ffffff" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="46" font-weight="800">Zhida AI</text>
+    <text x="0" y="88" fill="#dbeafe" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="20">Buildless AI chat with a same-origin proxy</text>
+    <g transform="translate(0 128)">
+      <rect x="0" y="0" width="136" height="38" rx="19" fill="#ffffff" opacity="0.18"/>
+      <text x="20" y="25" fill="#ffffff" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="14" font-weight="700">No API key leak</text>
+      <rect x="152" y="0" width="148" height="38" rx="19" fill="#ffffff" opacity="0.18"/>
+      <text x="172" y="25" fill="#ffffff" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="14" font-weight="700">Node 20+</text>
+      <rect x="316" y="0" width="116" height="38" rx="19" fill="#ffffff" opacity="0.18"/>
+      <text x="336" y="25" fill="#ffffff" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="14" font-weight="700">Docker</text>
+    </g>
+    <g transform="translate(0 206)">
+      <rect x="0" y="0" width="84" height="84" rx="24" fill="#ffffff" opacity="0.18"/>
+      <path d="M26 36c0-8.8 7.2-16 16-16h.2c8.8 0 16 7.2 16 16v13.5c0 2.8-2.2 5-5 5H42.5L31.5 65V54.5H31c-2.8 0-5-2.2-5-5V36Z" fill="#ffffff"/>
+      <circle cx="36" cy="41" r="3.5" fill="#2563eb"/>
+      <circle cx="46" cy="41" r="3.5" fill="#7c3aed"/>
+      <circle cx="56" cy="41" r="3.5" fill="#f97316"/>
+      <text x="108" y="30" fill="#ffffff" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="18" font-weight="800">Chat, search, reason</text>
+      <text x="108" y="58" fill="#dbeafe" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="16">Markdown · LaTeX · Streaming · Local data</text>
+    </g>
+  </g>
+  <g transform="translate(592 58)" filter="url(#shadow)">
+    <rect width="594" height="304" rx="30" fill="url(#panel)"/>
+    <rect x="22" y="22" width="138" height="260" rx="22" fill="#111827"/>
+    <rect x="42" y="48" width="86" height="18" rx="9" fill="#60a5fa"/>
+    <rect x="42" y="88" width="92" height="12" rx="6" fill="#334155"/>
+    <rect x="42" y="116" width="74" height="12" rx="6" fill="#334155"/>
+    <rect x="42" y="144" width="96" height="12" rx="6" fill="#334155"/>
+    <rect x="42" y="210" width="88" height="34" rx="17" fill="#2563eb"/>
+    <rect x="188" y="34" width="360" height="42" rx="21" fill="#e0e7ff"/>
+    <circle cx="212" cy="55" r="9" fill="#2563eb"/>
+    <rect x="232" y="48" width="108" height="13" rx="6.5" fill="#64748b"/>
+    <rect x="374" y="46" width="154" height="18" rx="9" fill="#ffffff"/>
+    <rect x="188" y="104" width="214" height="54" rx="23" fill="#ffffff"/>
+    <rect x="214" y="126" width="142" height="10" rx="5" fill="#64748b"/>
+    <rect x="252" y="176" width="278" height="64" rx="26" fill="url(#bubble)"/>
+    <rect x="282" y="199" width="176" height="10" rx="5" fill="#ffffff" opacity="0.85"/>
+    <rect x="188" y="256" width="360" height="28" rx="14" fill="#f8fafc"/>
+    <circle cx="212" cy="270" r="7" fill="#22c55e"/>
+    <rect x="232" y="265" width="130" height="10" rx="5" fill="#94a3b8"/>
+  </g>
+  <g transform="translate(930 272)">
+    <rect x="0" y="0" width="234" height="58" rx="29" fill="#020617" opacity="0.34"/>
+    <path d="M34 29h64" stroke="#ffffff" stroke-width="8" stroke-linecap="round" opacity="0.9"/>
+    <path d="M78 14l20 15-20 15" fill="none" stroke="#ffffff" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" opacity="0.9"/>
+    <text x="116" y="36" fill="#ffffff" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="16" font-weight="800">same-origin proxy</text>
+  </g>
+</svg>

@@ -87,9 +87,13 @@ export function renderConversationList(searchQuery = '') {
     const item = document.createElement('div');
     item.className = `conversation-item${conv.id === state.activeConversationId ? ' active' : ''}`;
     item.dataset.id = conv.id;
+    item.dataset.title = conv.title;
     item.setAttribute('role', 'button');
     item.setAttribute('tabindex', '0');
     item.setAttribute('aria-label', `对话: ${conv.title}`);
+    if (conv.id === state.activeConversationId) {
+      item.setAttribute('aria-current', 'true');
+    }
 
     const modelDef = state.models.find((m) => m.id === conv.modelId);
     const modelName = modelDef?.name ?? (conv.modelId ? `${conv.modelId}（模型不可用）` : '模型不可用');
@@ -100,7 +104,7 @@ export function renderConversationList(searchQuery = '') {
 
     item.innerHTML = `
       <div class="conversation-item__content">
-        <div class="conversation-item__title">${conv.pinned ? '<span class="conversation-item__pin-mark" aria-label="已置顶">★</span>' : ''}${escapeHTML(conv.title)}</div>
+        <div class="conversation-item__title">${conv.pinned ? '<span class="conversation-item__pin-mark" aria-label="已置顶">★</span>' : ''}<span class="conversation-item__title-text">${escapeHTML(conv.title)}</span></div>
         ${tagHtml}
         <div class="conversation-item__meta">
           <span class="conversation-item__model-tag">${escapeHTML(modelName)}</span>
@@ -108,15 +112,18 @@ export function renderConversationList(searchQuery = '') {
         </div>
       </div>
       <div class="conversation-item__actions">
-      <button class="conversation-item__action conversation-item__pin" data-id="${conv.id}" aria-label="${conv.pinned ? '取消置顶对话' : '置顶对话'}" title="${conv.pinned ? '取消置顶' : '置顶'}" aria-pressed="${conv.pinned ? 'true' : 'false'}">
-        <svg viewBox="0 0 24 24" fill="${conv.pinned ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21 12 17.27z"/></svg>
-      </button>
-      <button class="conversation-item__action conversation-item__tags-btn" data-id="${conv.id}" aria-label="编辑对话标签" title="编辑标签">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41 12 22l-10-10V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
-      </button>
-      <button class="conversation-item__action conversation-item__delete" data-id="${conv.id}" aria-label="删除对话" title="删除对话">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-      </button>
+        <button class="conversation-item__action conversation-item__rename" data-id="${conv.id}" aria-label="重命名对话" title="重命名">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+        </button>
+        <button class="conversation-item__action conversation-item__pin" data-id="${conv.id}" aria-label="${conv.pinned ? '取消置顶对话' : '置顶对话'}" title="${conv.pinned ? '取消置顶' : '置顶'}" aria-pressed="${conv.pinned ? 'true' : 'false'}">
+          <svg viewBox="0 0 24 24" fill="${conv.pinned ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21 12 17.27z"/></svg>
+        </button>
+        <button class="conversation-item__action conversation-item__tags-btn" data-id="${conv.id}" aria-label="编辑对话标签" title="编辑标签">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41 12 22l-10-10V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+        </button>
+        <button class="conversation-item__action conversation-item__delete" data-id="${conv.id}" aria-label="删除对话" title="删除对话">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+        </button>
       </div>
     `;
 
@@ -251,40 +258,58 @@ export function renderMessages() {
  */
 function renderWelcomeScreen(container) {
   const model = state.selectedModel;
-  const cards = WELCOME_PROMPTS.map((p) =>
-    `<button class="welcome-card" data-prompt="${escapeHTML(p.text)}" aria-label="${escapeHTML(p.text)}">
-      <span class="welcome-card__icon">${p.icon}</span>
-      <span class="welcome-card__text">${escapeHTML(p.text)}</span>
-    </button>`
-  ).join('');
   const backendStatus = getWelcomeBackendStatus();
   const backendStatusClass = getWelcomeStatusClass(backendStatus.badge);
+  const cards = WELCOME_PROMPTS.map((p) =>
+    `<button class="welcome-card" data-prompt="${escapeHTML(p.text)}" aria-label="插入建议：${escapeHTML(p.title)}">
+      <span class="welcome-card__icon" aria-hidden="true">${escapeHTML(p.icon)}</span>
+      <span class="welcome-card__body">
+        <span class="welcome-card__title">${escapeHTML(p.title)}</span>
+        <span class="welcome-card__text">${escapeHTML(p.text)}</span>
+      </span>
+    </button>`
+  ).join('');
 
   container.innerHTML = `
     <div class="welcome-screen">
-      <svg class="welcome-screen__logo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M12 2L2 7l10 5 10-5-10-5z"/>
-        <path d="M2 17l10 5 10-5"/>
-        <path d="M2 12l10 5 10-5"/>
-      </svg>
-      <h1 class="welcome-screen__title">智答 AI</h1>
-      <p class="welcome-screen__subtitle">你的智能 AI 助手</p>
-      <div class="welcome-screen__model">
-        <span class="badge ${model.badgeClass}">${model.badge}</span>
-        ${escapeHTML(model.name)}
+      <div class="welcome-screen__hero">
+        <div class="welcome-screen__logo" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+            <path d="M2 17l10 5 10-5"/>
+            <path d="M2 12l10 5 10-5"/>
+          </svg>
+        </div>
+        <p class="welcome-screen__eyebrow">Same-origin AI workspace</p>
+        <h1 class="welcome-screen__title">智答 AI</h1>
+        <p class="welcome-screen__subtitle">选择模型、配置后端代理，然后从一个清晰的问题开始。</p>
+        <div class="welcome-screen__model">
+          <span class="badge ${model.badgeClass}">${model.badge}</span>
+          <span>${escapeHTML(model.name)}</span>
+        </div>
       </div>
       <div id="welcome-backend-status-wrap" class="welcome-screen__backend-status welcome-screen__backend-status--${backendStatusClass}">
         <div class="welcome-screen__backend-status-row">
           <span id="welcome-backend-status-badge" class="welcome-screen__backend-status-badge">${escapeHTML(backendStatus.title)}</span>
-          <span class="welcome-screen__backend-sep">|</span>
           <span class="welcome-screen__backend-state">${escapeHTML(backendStatus.stateText)}</span>
         </div>
         <p id="welcome-backend-status" class="welcome-screen__backend-status-message">
           ${escapeHTML(backendStatus.message)}
         </p>
-        <button id="welcome-open-settings-btn" type="button" class="btn btn--secondary" aria-label="打开设置">
-          打开设置
-        </button>
+        <div class="welcome-screen__actions">
+          <button id="welcome-focus-input-btn" type="button" class="btn btn--primary" aria-label="开始提问">
+            开始提问
+          </button>
+          <button id="welcome-open-settings-btn" type="button" class="btn btn--secondary" aria-label="配置 API">
+            配置 API
+          </button>
+          <button id="welcome-import-data-btn" type="button" class="btn btn--ghost" aria-label="导入数据">
+            导入数据
+          </button>
+        </div>
+      </div>
+      <div class="welcome-screen__section-heading">
+        <span>试试这些开场</span>
       </div>
       <div class="welcome-screen__cards">${cards}</div>
     </div>

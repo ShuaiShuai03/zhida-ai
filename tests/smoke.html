@@ -87,6 +87,27 @@
       inputValue(requireElement(selector, root, context), value);
     }
 
+    function assertUsableAfterInteraction(win, button, context) {
+      const actionHost = button.closest('.conversation-item');
+      if (actionHost) {
+        actionHost.dispatchEvent(new MouseEvent('mouseover', {
+          bubbles: true,
+          cancelable: true,
+        }));
+        actionHost.dispatchEvent(new MouseEvent('mouseenter', {
+          bubbles: true,
+          cancelable: true,
+        }));
+      }
+
+      const hoverOpacity = Number.parseFloat(win.getComputedStyle(button).opacity || '0');
+      button.focus({ preventScroll: true });
+      const focusOpacity = Number.parseFloat(win.getComputedStyle(button).opacity || '0');
+      if (hoverOpacity <= 0 && focusOpacity <= 0) {
+        fail(`${context}: 会话项操作按钮在 hover/focus 后仍不可用`);
+      }
+    }
+
     function dispatchBySelector(selector, event, root = document, context = '触发事件') {
       requireElement(selector, root, context).dispatchEvent(event);
     }
@@ -325,9 +346,59 @@
         if (!messageArea.querySelector('.welcome-screen__cards')) {
           fail('welcome screen 的卡片区应存在');
         }
-        if (welcomeCards.length === 0) {
-          fail('welcome screen 应包含至少一张快捷卡片');
+        if (welcomeCards.length !== 6) {
+          fail(`welcome screen 应包含 6 张快捷卡片，当前为 ${welcomeCards.length} 张`);
         }
+
+        const welcomeCard = welcomeCards[0];
+        const welcomeCardPrompt = welcomeCard?.dataset?.prompt?.trim()
+          || safeText('.welcome-card__text', welcomeCard).trim();
+        if (!welcomeCardPrompt) {
+          fail('欢迎卡片缺少可填充的 prompt 文案');
+        }
+
+        const beforeWelcomeUserCount = doc.querySelectorAll('.message--user').length;
+        const beforeWelcomeAiCount = doc.querySelectorAll('.message--ai .message__content').length;
+        click(welcomeCard);
+        await waitFor(
+          () => safeValue('#chat-input', doc) === welcomeCardPrompt,
+          'welcome card fills chat input'
+        );
+
+        if (
+          doc.querySelectorAll('.message--user').length !== beforeWelcomeUserCount
+          || doc.querySelectorAll('.message--ai .message__content').length !== beforeWelcomeAiCount
+        ) {
+          fail('点击欢迎卡片不应自动发送用户消息');
+        }
+
+        inputBySelector('#chat-input', '', doc, '清空欢迎卡片预填充文本');
+
+        clickBySelector('#welcome-focus-input-btn', doc, '点击欢迎页开始提问');
+        await waitFor(
+          () => doc.activeElement === doc.querySelector('#chat-input'),
+          'welcome start asking focuses composer'
+        );
+        clickBySelector('#welcome-open-settings-btn', doc, '点击欢迎页配置 API');
+        await waitFor(
+          () => doc.querySelector('#settings-modal')?.classList.contains('visible'),
+          'welcome configure API opens settings'
+        );
+        clickBySelector('#settings-modal .modal__close', doc, '关闭欢迎页打开的设置弹窗');
+        await waitFor(
+          () => doc.querySelector('#settings-modal')?.getAttribute('aria-hidden') === 'true',
+          'welcome settings modal closes'
+        );
+        clickBySelector('#welcome-import-data-btn', doc, '点击欢迎页导入数据');
+        await waitFor(
+          () => doc.querySelector('#data-management-modal')?.classList.contains('visible'),
+          'welcome import data opens data modal'
+        );
+        clickBySelector('#data-management-modal .modal__close', doc, '关闭欢迎页打开的数据弹窗');
+        await waitFor(
+          () => doc.querySelector('#data-management-modal')?.getAttribute('aria-hidden') === 'true',
+          'welcome data modal closes'
+        );
       }
       await waitFor(() => safeInnerHTML('#theme-toggle', doc).trim(), 'theme icon render');
       if (doc.querySelectorAll('.message--user').length > 0) {
@@ -336,6 +407,24 @@
 
       assertDesignRadiusConsistency(win, doc);
       assertFocusVisible(doc, '#settings-btn', 'settings按钮 focus-visible');
+      const sidebarActionButtons = [
+        requireElement('#export-btn', doc, '检查侧边栏底部导出按钮'),
+        requireElement('#data-management-btn', doc, '检查侧边栏底部数据管理按钮'),
+        requireElement('#prompt-templates-btn', doc, '检查侧边栏底部提示词模板按钮'),
+        requireElement('#shortcuts-btn', doc, '检查侧边栏底部快捷键按钮'),
+        requireElement('#clear-all-btn', doc, '检查侧边栏底部清空按钮'),
+      ];
+      const sidebarActionParents = new Set(sidebarActionButtons.map((button) => button.parentElement));
+      if (sidebarActionParents.size > 1) {
+        fail('compact sidebar menu should keep the bottom actions in a unified toolbar container');
+      }
+      assertElementsExist(doc, [
+        '#export-btn',
+        '#data-management-btn',
+        '#prompt-templates-btn',
+        '#shortcuts-btn',
+        '#clear-all-btn',
+      ], '侧边栏底部动作按钮');
       assertElementsExist(doc, [
         '#settings-modal',
         '#settings-api-base-url',
@@ -363,6 +452,15 @@
       if (!composer || !composer.contains(doc.querySelector('#upload-btn')) || !composer.contains(doc.querySelector('#send-btn'))) {
         fail('upload, textarea, and send controls should share one composer container');
       }
+      assertElementsExist(doc, [
+        '#chat-input',
+        '#web-search-toggle',
+        '#reasoning-effort-select',
+        '#input-template-btn',
+        '#upload-btn',
+        '#stop-btn',
+        '#send-btn',
+      ], 'composer 关键控件');
       const composerFooter = requireElement('.composer__footer', doc, '检查底部控制区');
       if (
         !composerFooter ||
@@ -596,16 +694,36 @@
       if (!activeHelloConversation) {
         fail('hello smoke conversation should be active');
       }
-      click(requireElement('.conversation-item__pin', activeHelloConversation, '固定对话按钮'));
+      const renameButton = requireElement('.conversation-item__rename', activeHelloConversation, '重命名对话按钮');
+      assertUsableAfterInteraction(win, renameButton, '侧边栏会话重命名按钮应在 hover/focus 后可用');
+      click(renameButton);
+      const renameInput = await waitFor(
+        () => activeHelloConversation.querySelector('.conversation-item__rename-input'),
+        'conversation rename input visible'
+      );
+      inputValue(renameInput, 'hello smoke renamed');
+      renameInput.dispatchEvent(new KeyboardEvent('keydown', {
+        key: 'Enter',
+        code: 'Enter',
+        bubbles: true,
+        cancelable: true,
+      }));
+      await waitFor(
+        () => findByText('.conversation-item.active', 'hello smoke renamed', doc),
+        'conversation renamed from explicit action'
+      );
+      const renamedHelloConversation = findByTextOrFail('.conversation-item.active', 'hello smoke renamed', doc, '重命名后的会话条目');
+      const pinButton = requireElement('.conversation-item__pin', renamedHelloConversation, '固定对话按钮');
+      assertUsableAfterInteraction(win, pinButton, '侧边栏会话固定按钮应在 hover/focus 后可用');
+      click(pinButton);
       await waitFor(
         () => findByText('.conversation-item', 'hello smoke', doc)?.querySelector('.conversation-item__pin')?.getAttribute('aria-pressed') === 'true',
         'conversation pinned'
       );
-      click(requireElement(
-        '.conversation-item__tags-btn',
-        findByTextOrFail('.conversation-item', 'hello smoke', doc, '会话条目'),
-        '打开会话标签按钮'
-      ));
+      const helloConversationEntry = findByTextOrFail('.conversation-item', 'hello smoke renamed', doc, '置顶后的会话条目');
+      const tagsButton = requireElement('.conversation-item__tags-btn', helloConversationEntry, '打开会话标签按钮');
+      assertUsableAfterInteraction(win, tagsButton, '侧边栏会话标签按钮应在 hover/focus 后可用');
+      click(tagsButton);
       await waitFor(
         () => findByText('.conversation-item', '#smokeTag', doc),
         'conversation tag rendered'
@@ -698,6 +816,10 @@
         'standard model option'
       );
       click(standardOption);
+      await waitFor(
+        () => safeText('#model-trigger', doc).includes('Smoke Standard'),
+        'standard model selected before slow streaming test'
+      );
 
       clickBySelector('#new-chat-btn', doc, '开启慢回复对话');
       inputBySelector('#chat-input', 'slow response please', doc, '输入慢回复消息');
@@ -796,6 +918,7 @@
         'previous conversation active in sidebar'
       );
       const deleteButton = requireElement('.conversation-item__delete', activePreviousConversation, '获取会话删除按钮');
+      assertUsableAfterInteraction(win, deleteButton, '侧边栏会话删除按钮应在 hover/focus 后可用');
       deleteButton.focus();
       await waitFor(
         () => win.getComputedStyle(deleteButton).opacity === '1',

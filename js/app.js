@@ -586,6 +586,14 @@ function bindSidebarEvents() {
 
   if (conversationList) {
     conversationList.addEventListener('click', async (e) => {
+      const renameBtn = e.target.closest('.conversation-item__rename');
+      if (renameBtn) {
+        e.stopPropagation();
+        const item = renameBtn.closest('.conversation-item');
+        if (item) startConversationRename(item);
+        return;
+      }
+
       // Delete button
       const delBtn = e.target.closest('.conversation-item__delete');
       if (delBtn) {
@@ -638,53 +646,14 @@ function bindSidebarEvents() {
 
       e.preventDefault();
       e.stopPropagation();
-
-      const id = item.dataset.id;
-      const currentTitle = titleEl.textContent;
-
-      // Replace title with inline input
-      const input = document.createElement('input');
-      input.type = 'text';
-      input.className = 'conversation-item__rename-input';
-      input.value = currentTitle;
-      input.setAttribute('aria-label', '重命名对话');
-
-      titleEl.replaceWith(input);
-      input.focus();
-      input.select();
-
-      const commit = () => {
-        const newTitle = input.value.trim();
-        if (newTitle && newTitle !== currentTitle) {
-          renameConversation(id, newTitle);
-        } else {
-          // Restore original title element
-          const restored = document.createElement('div');
-          restored.className = 'conversation-item__title';
-          restored.textContent = currentTitle;
-          input.replaceWith(restored);
-        }
-      };
-
-      input.addEventListener('keydown', (ke) => {
-        if (ke.key === 'Enter') {
-          ke.preventDefault();
-          commit();
-        } else if (ke.key === 'Escape') {
-          ke.preventDefault();
-          // Restore original
-          const restored = document.createElement('div');
-          restored.className = 'conversation-item__title';
-          restored.textContent = currentTitle;
-          input.replaceWith(restored);
-        }
-      });
-
-      input.addEventListener('blur', commit, { once: true });
+      startConversationRename(item);
     }, { signal });
 
     // Keyboard navigation for conversation items
     conversationList.addEventListener('keydown', (e) => {
+      if (e.target.closest('.conversation-item__action, .conversation-item__rename-input')) {
+        return;
+      }
       if (e.key === 'Enter' || e.key === ' ') {
         const item = e.target.closest('.conversation-item');
         if (item) {
@@ -747,6 +716,56 @@ function bindSidebarEvents() {
       openModal('prompt-templates-modal');
     }, { signal });
   }
+}
+
+function startConversationRename(item) {
+  const id = item?.dataset?.id;
+  const titleEl = item?.querySelector('.conversation-item__title');
+  if (!id || !titleEl || item.querySelector('.conversation-item__rename-input')) return;
+
+  const currentTitle = item.dataset.title || titleEl.querySelector('.conversation-item__title-text')?.textContent || titleEl.textContent || '';
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'conversation-item__rename-input';
+  input.value = currentTitle;
+  input.setAttribute('aria-label', '重命名对话');
+
+  titleEl.replaceWith(input);
+  input.focus();
+  input.select();
+
+  let finished = false;
+  const restoreList = () => {
+    renderConversationList(getCurrentSearchQuery());
+  };
+  const commit = () => {
+    if (finished) return;
+    finished = true;
+    const newTitle = input.value.trim();
+    if (newTitle && newTitle !== currentTitle) {
+      renameConversation(id, newTitle);
+    } else {
+      restoreList();
+    }
+  };
+  const cancel = () => {
+    if (finished) return;
+    finished = true;
+    restoreList();
+  };
+
+  input.addEventListener('click', (e) => e.stopPropagation());
+  input.addEventListener('keydown', (ke) => {
+    if (ke.key === 'Enter') {
+      ke.preventDefault();
+      commit();
+    } else if (ke.key === 'Escape') {
+      ke.preventDefault();
+      cancel();
+    }
+  });
+
+  input.addEventListener('blur', commit, { once: true });
 }
 
 // ============================================
@@ -1083,9 +1102,22 @@ function bindModalEvents() {
   const chatMessagesInner = $('#chat-messages-inner');
   if (chatMessagesInner) {
     chatMessagesInner.addEventListener('click', (e) => {
+      const focusInputBtn = e.target.closest('#welcome-focus-input-btn');
+      if (focusInputBtn) {
+        $('#chat-input')?.focus();
+        return;
+      }
+
       const openSettingsBtn = e.target.closest('#welcome-open-settings-btn');
       if (openSettingsBtn) {
         openSettingsModal();
+        return;
+      }
+
+      const importDataBtn = e.target.closest('#welcome-import-data-btn');
+      if (importDataBtn) {
+        renderDataStats();
+        openModal('data-management-modal');
         return;
       }
 
@@ -1101,8 +1133,9 @@ function bindModalEvents() {
           if (textarea) {
             textarea.value = prompt;
             autoResizeTextarea(textarea);
+            updateSendButton(canSend());
+            textarea.focus();
           }
-          sendMessage(prompt);
         }
       }
     }, { signal });

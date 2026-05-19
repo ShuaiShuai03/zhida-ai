@@ -54,7 +54,7 @@
   --control-ring-size: 2px;
 
   /* ---- Sidebar ---- */
-  --sidebar-width: 280px;
+  --sidebar-width: 296px;
 
   /* ---- Z-Index Scale ---- */
   --z-sidebar: 100;
@@ -93,7 +93,7 @@
   --color-input-focus-ring: rgba(37, 99, 235, 0.22);
 
   /* ---- Neutral ---- */
-  --color-bg: #F8F9FB;
+  --color-bg: #F6F8FB;
   --color-bg-elevated: #FFFFFF;
   --color-bg-secondary: #F1F3F5;
   --color-bg-tertiary: #E9ECEF;
@@ -117,13 +117,13 @@
   --color-divider-subtle: #F3F4F6;
 
   /* ---- Sidebar ---- */
-  --color-sidebar-bg: #FFFFFF;
-  --color-sidebar-hover: #F3F4F6;
-  --color-sidebar-active: #E0E7FF;
+  --color-sidebar-bg: #FBFCFE;
+  --color-sidebar-hover: #F1F5F9;
+  --color-sidebar-active: #EAF2FF;
   --color-sidebar-border: #E5E7EB;
 
   /* ---- Header ---- */
-  --color-header-bg: rgba(255, 255, 255, 0.82);
+  --color-header-bg: rgba(255, 255, 255, 0.88);
   --color-header-blur: saturate(180%) blur(20px);
 
   /* ---- Chat ---- */
@@ -177,7 +177,7 @@
 
   /* ---- Welcome Card ---- */
   --color-card-bg: #FFFFFF;
-  --color-card-hover: #F8F9FB;
+  --color-card-hover: #F4F8FF;
   --color-card-border: #E5E7EB;
 
   /* ---- Toast ---- */

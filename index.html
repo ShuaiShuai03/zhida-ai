@@ -74,26 +74,26 @@
       </div>
 
       <div class="sidebar-footer">
-        <div class="sidebar-footer__actions">
-          <button id="export-btn" class="sidebar-footer__btn" aria-label="导出对话">
+        <div class="sidebar-footer__toolbar" aria-label="会话工具">
+          <button id="export-btn" class="sidebar-footer__tool" aria-label="导出当前对话" title="导出当前对话">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-            <span>导出当前对话</span>
+            <span class="sr-only">导出当前对话</span>
           </button>
-          <button id="data-management-btn" class="sidebar-footer__btn" aria-label="数据管理">
+          <button id="data-management-btn" class="sidebar-footer__tool" aria-label="数据管理" title="数据管理">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3"/></svg>
-            <span>数据管理</span>
+            <span class="sr-only">数据管理</span>
           </button>
-          <button id="prompt-templates-btn" class="sidebar-footer__btn" aria-label="提示词模板">
+          <button id="prompt-templates-btn" class="sidebar-footer__tool" aria-label="提示词模板" title="提示词模板">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="14" y2="17"/></svg>
-            <span>提示词模板</span>
+            <span class="sr-only">提示词模板</span>
           </button>
-          <button id="shortcuts-btn" class="sidebar-footer__btn" aria-label="快捷键">
+          <button id="shortcuts-btn" class="sidebar-footer__tool" aria-label="快捷键" title="快捷键">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2" ry="2"/><path d="M6 8h.01"/><path d="M10 8h.01"/><path d="M14 8h.01"/><path d="M18 8h.01"/><path d="M8 12h.01"/><path d="M12 12h.01"/><path d="M16 12h.01"/><path d="M7 16h10"/></svg>
-            <span>⌨️ 快捷键</span>
+            <span class="sr-only">快捷键</span>
           </button>
-          <button id="clear-all-btn" class="sidebar-footer__btn sidebar-footer__btn--danger" aria-label="清空所有对话">
+          <button id="clear-all-btn" class="sidebar-footer__tool sidebar-footer__tool--danger" aria-label="清空所有对话" title="清空所有对话">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-            <span>清空所有对话</span>
+            <span class="sr-only">清空所有对话</span>
           </button>
         </div>
       </div>
@@ -121,6 +121,23 @@
                 <!-- Rendered by JS -->
               </div>
             </div>
+          </div>
+
+          <div class="capability-controls" aria-label="模型能力">
+            <label class="tool-toggle" title="使用 OpenAI Responses API 的网络搜索工具">
+              <input type="checkbox" id="web-search-toggle" />
+              <span class="tool-toggle__track" aria-hidden="true"></span>
+              <span class="tool-toggle__label">网络搜索</span>
+            </label>
+            <label class="reasoning-control" title="当前模型不是深度思考模型，无法设置推理深度">
+              <span class="reasoning-control__label">思考深度</span>
+              <select id="reasoning-effort-select" aria-label="思考深度">
+                <option value="low">低</option>
+                <option value="medium">标准</option>
+                <option value="high">高</option>
+                <option value="xhigh">极高</option>
+              </select>
+            </label>
           </div>
         </div>
 
@@ -155,23 +172,7 @@
                 aria-label="输入消息"
               ></textarea>
               <div class="composer__footer">
-                <div class="composer__left-tools" aria-label="请求能力">
-                  <label class="tool-toggle" title="使用 OpenAI Responses API 的网络搜索工具">
-                    <input type="checkbox" id="web-search-toggle" />
-                    <span class="tool-toggle__track" aria-hidden="true"></span>
-                    <span class="tool-toggle__label">网络搜索</span>
-                  </label>
-                  <label class="reasoning-control" title="当前模型不是深度思考模型，无法设置推理深度">
-                    <span class="reasoning-control__label">思考深度</span>
-                    <select id="reasoning-effort-select" aria-label="思考深度">
-                      <option value="low">低</option>
-                      <option value="medium">标准</option>
-                      <option value="high">高</option>
-                      <option value="xhigh">极高</option>
-                    </select>
-                  </label>
-                </div>
-                <div class="composer__right-tools" aria-label="输入工具">
+                <div class="composer__left-tools" aria-label="输入工具">
                   <button type="button" class="system-prompt-indicator" aria-label="自定义系统提示词已启用">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
                     <span>自定义提示词</span>
@@ -183,17 +184,19 @@
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
                   </button>
                   <input type="file" id="file-input" multiple hidden />
-                <button id="stop-btn" class="stop-btn hidden" aria-label="停止生成" aria-hidden="true">
-                  <span class="stop-btn__label">停止生成</span>
-                  <span class="stop-btn__icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
-                  </span>
-                </button>
-                <button id="send-btn" class="send-btn" disabled aria-disabled="true" aria-label="发送消息">
-                  <span class="send-btn__icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
-                  </span>
-                </button>
+                </div>
+                <div class="composer__right-tools" aria-label="发送控制">
+                  <button id="stop-btn" class="stop-btn hidden" aria-label="停止生成" aria-hidden="true">
+                    <span class="stop-btn__label">停止生成</span>
+                    <span class="stop-btn__icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+                    </span>
+                  </button>
+                  <button id="send-btn" class="send-btn" disabled aria-disabled="true" aria-label="发送消息">
+                    <span class="send-btn__icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                    </span>
+                  </button>
                 </div>
               </div>
               <div id="composer-status" class="sr-only" aria-live="polite"></div>

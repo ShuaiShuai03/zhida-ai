@@ -8,24 +8,56 @@
   align-items: center;
   justify-content: center;
   text-align: center;
-  padding: var(--space-10) var(--space-4);
-  max-width: 640px;
+  width: 100%;
+  padding: var(--space-6) var(--space-4);
+  max-width: 760px;
   margin: 0 auto;
+  min-height: 100%;
   animation: fade-in-up 0.4s ease-out;
 }
 
 .welcome-screen__logo {
-  width: 64px;
-  height: 64px;
+  width: 52px;
+  height: 52px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   color: var(--color-primary);
-  margin-bottom: var(--space-5);
+  background: var(--color-primary-soft);
+  border: 1px solid var(--color-primary-muted);
+  border-radius: var(--radius-2xl);
+  margin-bottom: var(--space-3);
+  box-shadow: var(--shadow-soft);
+}
+
+.welcome-screen__logo svg {
+  width: 28px;
+  height: 28px;
+}
+
+.welcome-screen__hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  max-width: 640px;
+}
+
+.welcome-screen__eyebrow {
+  margin-bottom: var(--space-1);
+  color: var(--color-primary);
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
 }
 
 .welcome-screen__title {
   font-size: var(--font-size-3xl);
   font-weight: 700;
   color: var(--color-text-primary);
-  margin-bottom: var(--space-2);
+  margin-bottom: var(--space-1);
   letter-spacing: 0;
 }
 
@@ -33,6 +65,8 @@
   font-size: var(--font-size-md);
   color: var(--color-text-secondary);
   margin-bottom: var(--space-3);
+  max-width: 520px;
+  overflow-wrap: anywhere;
 }
 
 .welcome-screen__model {
@@ -45,15 +79,17 @@
   font-size: var(--font-size-sm);
   color: var(--color-primary);
   font-weight: 500;
-  margin-bottom: var(--space-7);
+  margin-bottom: var(--space-4);
 }
 
 .welcome-screen__backend-status {
   display: grid;
   gap: var(--space-3);
   width: 100%;
-  margin-bottom: var(--space-6);
-  padding: var(--space-4);
+  min-width: 0;
+  max-width: 640px;
+  margin-bottom: var(--space-4);
+  padding: var(--space-3) var(--space-4);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-xl);
   background: var(--color-surface);
@@ -64,6 +100,7 @@
 .welcome-screen__backend-status-row {
   display: flex;
   align-items: center;
+  justify-content: center;
   flex-wrap: wrap;
   gap: var(--space-2);
   min-width: 0;
@@ -81,10 +118,6 @@
   font-weight: 700;
 }
 
-.welcome-screen__backend-sep {
-  color: var(--color-text-tertiary);
-}
-
 .welcome-screen__backend-state {
   color: var(--color-text-primary);
   font-size: var(--font-size-sm);
@@ -95,10 +128,29 @@
   color: var(--color-text-secondary);
   font-size: var(--font-size-sm);
   line-height: var(--line-height-base);
+  text-align: center;
+  overflow-wrap: anywhere;
 }
 
-.welcome-screen__backend-status .btn {
-  justify-self: start;
+.welcome-screen__actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  width: 100%;
+  gap: var(--space-2);
+}
+
+.welcome-screen__section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  max-width: 640px;
+  margin-bottom: var(--space-3);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
 }
 
 .welcome-screen__backend-status--error {
@@ -134,19 +186,22 @@
 
 .welcome-screen__cards {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: var(--space-3);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-2);
   width: 100%;
+  min-width: 0;
+  max-width: 760px;
 }
 
 .welcome-card {
   display: flex;
   align-items: flex-start;
   gap: var(--space-3);
-  padding: var(--space-4);
+  min-height: 94px;
+  padding: var(--space-3);
   background: var(--color-card-bg);
   border: 1px solid var(--color-card-border);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-xl);
   text-align: left;
   cursor: pointer;
   transition: background-color var(--transition-fast),
@@ -179,15 +234,40 @@
 }
 
 .welcome-card__icon {
-  font-size: var(--font-size-xl);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-md);
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
+  font-size: var(--font-size-sm);
+  font-weight: 700;
   flex-shrink: 0;
   line-height: 1;
 }
 
-.welcome-card__text {
+.welcome-card__body {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.welcome-card__title {
+  color: var(--color-text-primary);
   font-size: var(--font-size-sm);
+  font-weight: 700;
+}
+
+.welcome-card__text {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  font-size: var(--font-size-xs);
   color: var(--color-text-secondary);
-  line-height: var(--line-height-base);
+  line-height: 1.5;
 }
 
 /* ============================================
@@ -196,7 +276,7 @@
 
 .message {
   display: flex;
-  gap: var(--space-3);
+  gap: var(--space-2);
   animation: fade-in-up 0.2s ease-out;
   position: relative;
 }
@@ -211,9 +291,9 @@
 
 /* ---- Avatar ---- */
 .message__avatar {
-  width: 32px;
-  height: 32px;
-  border-radius: var(--radius-md);
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-full);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -243,7 +323,7 @@
 
 /* ---- Bubble ---- */
 .message__bubble {
-  max-width: 80%;
+  max-width: min(78%, 720px);
   min-width: 60px;
   position: relative;
 }
@@ -251,16 +331,18 @@
 .message--user .message__bubble {
   background: var(--color-user-bubble);
   color: var(--color-user-bubble-text);
-  border-radius: var(--radius-lg) var(--radius-sm) var(--radius-lg) var(--radius-lg);
+  border-radius: var(--radius-xl) var(--radius-md) var(--radius-xl) var(--radius-xl);
   padding: var(--space-3) var(--space-4);
+  box-shadow: var(--shadow-sm);
 }
 
 .message--ai .message__bubble {
   background: var(--color-ai-bubble);
   color: var(--color-ai-bubble-text);
   border: 1px solid var(--color-ai-bubble-border);
-  border-radius: var(--radius-sm) var(--radius-lg) var(--radius-lg) var(--radius-lg);
+  border-radius: var(--radius-md) var(--radius-xl) var(--radius-xl) var(--radius-xl);
   padding: var(--space-4) var(--space-5);
+  box-shadow: var(--shadow-xs);
 }
 
 .message--error .message__bubble {

@@ -98,6 +98,7 @@ export function renderConversationList(searchQuery = '') {
     const modelDef = state.models.find((m) => m.id === conv.modelId);
     const modelName = modelDef?.name ?? (conv.modelId ? `${conv.modelId}（模型不可用）` : '模型不可用');
     const tags = Array.isArray(conv.tags) ? conv.tags : [];
+    const escapedConversationId = escapeHTML(String(conv.id ?? ''));
     const tagHtml = tags.length
       ? `<div class="conversation-item__tags">${tags.map((tag) => `<span>#${escapeHTML(tag)}</span>`).join('')}</div>`
       : '';
@@ -112,16 +113,16 @@ export function renderConversationList(searchQuery = '') {
         </div>
       </div>
       <div class="conversation-item__actions">
-        <button class="conversation-item__action conversation-item__rename" data-id="${conv.id}" aria-label="重命名对话" title="重命名">
+        <button class="conversation-item__action conversation-item__rename" data-id="${escapedConversationId}" aria-label="重命名对话" title="重命名">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
         </button>
-        <button class="conversation-item__action conversation-item__pin" data-id="${conv.id}" aria-label="${conv.pinned ? '取消置顶对话' : '置顶对话'}" title="${conv.pinned ? '取消置顶' : '置顶'}" aria-pressed="${conv.pinned ? 'true' : 'false'}">
+        <button class="conversation-item__action conversation-item__pin" data-id="${escapedConversationId}" aria-label="${conv.pinned ? '取消置顶对话' : '置顶对话'}" title="${conv.pinned ? '取消置顶' : '置顶'}" aria-pressed="${conv.pinned ? 'true' : 'false'}">
           <svg viewBox="0 0 24 24" fill="${conv.pinned ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21 12 17.27z"/></svg>
         </button>
-        <button class="conversation-item__action conversation-item__tags-btn" data-id="${conv.id}" aria-label="编辑对话标签" title="编辑标签">
+        <button class="conversation-item__action conversation-item__tags-btn" data-id="${escapedConversationId}" aria-label="编辑对话标签" title="编辑标签">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41 12 22l-10-10V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
         </button>
-        <button class="conversation-item__action conversation-item__delete" data-id="${conv.id}" aria-label="删除对话" title="删除对话">
+        <button class="conversation-item__action conversation-item__delete" data-id="${escapedConversationId}" aria-label="删除对话" title="删除对话">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
         </button>
       </div>
@@ -436,13 +437,14 @@ function createMessageElement(msg) {
 
     let thinkingHTML = '';
     if (msg.thinking) {
+      const escapedMessageId = escapeHTML(String(msg.id ?? ''));
       thinkingHTML = `
-        <div class="thinking-block" data-msg-id="${msg.id}">
-          <button class="thinking-block__toggle" aria-expanded="false" aria-controls="thinking-content-${msg.id}" aria-label="查看思考过程">
+        <div class="thinking-block" data-msg-id="${escapedMessageId}">
+          <button class="thinking-block__toggle" aria-expanded="false" aria-controls="thinking-content-${escapedMessageId}" aria-label="查看思考过程">
             <span class="thinking-block__toggle-icon">▶</span>
             <span>💭 查看思考过程</span>
           </button>
-          <div class="thinking-block__content" id="thinking-content-${msg.id}">
+          <div class="thinking-block__content" id="thinking-content-${escapedMessageId}">
             <div class="message__content">${renderMarkdown(msg.thinking)}</div>
           </div>
         </div>

@@ -180,6 +180,48 @@ test('backup payload rejects invalid versions and merges conversations by import
   assert.equal(merged.promptTemplates.length, 1);
 });
 
+test('backup import replaces unsafe conversation and message ids before rendering', () => {
+  const rawConversationId = 'conv" autofocus onfocus="alert(1)';
+  const rawMessageId = 'msg" aria-expanded="true';
+
+  const backup = parseBackupPayload({
+    version: 1,
+    activeConversationId: rawConversationId,
+    conversations: [{
+      id: rawConversationId,
+      title: '外部备份',
+      modelId: 'model-a',
+      messages: [{
+        id: rawMessageId,
+        role: 'assistant',
+        content: 'ok',
+        thinking: 'trace',
+      }],
+      updatedAt: 20,
+    }],
+  });
+
+  const [conversation] = backup.conversations;
+  assert.match(conversation.id, /^conv-[A-Za-z0-9_-]+$/);
+  assert.notEqual(conversation.id, rawConversationId);
+  assert.equal(backup.activeConversationId, conversation.id);
+  assert.match(conversation.messages[0].id, /^msg-[A-Za-z0-9_-]+$/);
+  assert.notEqual(conversation.messages[0].id, rawMessageId);
+  assert.equal(conversation.title, '外部备份');
+  assert.equal(conversation.messages[0].content, 'ok');
+
+  const safeBackup = parseBackupPayload({
+    version: 1,
+    activeConversationId: 'safe-conv_1',
+    conversations: [{
+      id: 'safe-conv_1',
+      messages: [{ id: 'safe-msg_1', role: 'user', content: 'hello' }],
+    }],
+  });
+  assert.equal(safeBackup.conversations[0].id, 'safe-conv_1');
+  assert.equal(safeBackup.conversations[0].messages[0].id, 'safe-msg_1');
+});
+
 test('prompt templates keep built-ins and support custom create update delete', () => {
   const created = upsertCustomTemplate([], { id: 'custom', name: '自定义', content: '内容 {{text}}' });
   assert.equal(created.length, 1);

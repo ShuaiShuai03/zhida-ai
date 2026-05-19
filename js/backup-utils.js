@@ -1,7 +1,9 @@
 import { normalizeTags, sortConversationsByUpdatedAt } from './conversation-utils.js';
 import { normalizeCustomTemplates } from './prompt-templates.js';
+import { generateId } from './utils.js';
 
 export const BACKUP_VERSION = 1;
+const SAFE_IMPORTED_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 
 export function formatBjtTimestamp(date = new Date()) {
   return new Intl.DateTimeFormat('zh-CN', {
@@ -30,6 +32,35 @@ export function normalizeSettings(value = {}) {
   };
 }
 
+function normalizeImportedId(value, prefix, idMap = new Map()) {
+  if (typeof value === 'string' && SAFE_IMPORTED_ID_PATTERN.test(value)) {
+    return value;
+  }
+
+  const key = `${prefix}:${typeof value === 'string' ? value : ''}`;
+  if (typeof value === 'string' && value && idMap.has(key)) return idMap.get(key);
+
+  const id = `${prefix}-${generateId()}`;
+  if (typeof value === 'string' && value) idMap.set(key, id);
+  return id;
+}
+
+function normalizeMessage(value, idMap = new Map()) {
+  if (!value || typeof value !== 'object') return null;
+  return {
+    ...value,
+    id: normalizeImportedId(value.id, 'msg', idMap),
+  };
+}
+
+function resolveActiveConversationId(value, idMap, conversations) {
+  if (typeof value !== 'string') return null;
+  const normalizedId = SAFE_IMPORTED_ID_PATTERN.test(value)
+    ? value
+    : idMap.get(`conv:${value}`);
+  return conversations.some((item) => item.id === normalizedId) ? normalizedId : null;
+}
+
 export function normalizeLongTextAttachment(value) {
   if (!value || typeof value !== 'object' || value.type !== 'generated-md' || typeof value.id !== 'string') {
     return null;
@@ -47,15 +78,20 @@ export function normalizeLongTextAttachment(value) {
   };
 }
 
-export function normalizeConversation(value) {
+export function normalizeConversation(value, options = {}) {
   if (!value || typeof value !== 'object' || typeof value.id !== 'string') return null;
   const now = Date.now();
+  const conversationIdMap = options.conversationIdMap ?? new Map();
+  const messageIdMap = options.messageIdMap ?? new Map();
   return {
     ...value,
+    id: normalizeImportedId(value.id, 'conv', conversationIdMap),
     title: String(value.title ?? '新对话'),
     modelId: String(value.modelId ?? ''),
     systemPrompt: typeof value.systemPrompt === 'string' ? value.systemPrompt : '',
-    messages: Array.isArray(value.messages) ? value.messages : [],
+    messages: Array.isArray(value.messages)
+      ? value.messages.map((message) => normalizeMessage(message, messageIdMap)).filter(Boolean)
+      : [],
     createdAt: typeof value.createdAt === 'number' ? value.createdAt : now,
     updatedAt: typeof value.updatedAt === 'number' ? value.updatedAt : (value.createdAt ?? now),
     pinned: Boolean(value.pinned),
@@ -64,16 +100,19 @@ export function normalizeConversation(value) {
 }
 
 export function createBackupPayload(data) {
+  const conversationIdMap = new Map();
+  const conversations = sortConversationsByUpdatedAt(
+    (Array.isArray(data.conversations) ? data.conversations : [])
+      .map((conversation) => normalizeConversation(conversation, { conversationIdMap }))
+      .filter(Boolean)
+  );
+
   return {
     version: BACKUP_VERSION,
     exportedAt: formatBjtTimestamp(),
     settings: normalizeSettings(data.settings),
-    conversations: sortConversationsByUpdatedAt(
-      (Array.isArray(data.conversations) ? data.conversations : [])
-        .map(normalizeConversation)
-        .filter(Boolean)
-    ),
-    activeConversationId: data.activeConversationId ?? null,
+    conversations,
+    activeConversationId: resolveActiveConversationId(data.activeConversationId, conversationIdMap, conversations),
     selectedModelId: data.selectedModelId ?? null,
     models: Array.isArray(data.models) ? data.models : [],
     promptTemplates: normalizeCustomTemplates(data.promptTemplates),
@@ -103,8 +142,9 @@ export function parseBackupPayload(raw) {
 
 export function mergeBackupIntoState(current, backup) {
   const byId = new Map();
+  const currentConversationIdMap = new Map();
   for (const conversation of current.conversations ?? []) {
-    const normalized = normalizeConversation(conversation);
+    const normalized = normalizeConversation(conversation, { conversationIdMap: currentConversationIdMap });
     if (normalized) byId.set(normalized.id, normalized);
   }
   for (const conversation of backup.conversations ?? []) {
@@ -121,9 +161,14 @@ export function mergeBackupIntoState(current, backup) {
   }
 
   const conversations = sortConversationsByUpdatedAt(Array.from(byId.values()));
+  const currentActiveConversationId = resolveActiveConversationId(
+    current.activeConversationId,
+    currentConversationIdMap,
+    conversations
+  );
   const activeConversationId = conversations.some((item) => item.id === backup.activeConversationId)
     ? backup.activeConversationId
-    : (current.activeConversationId ?? conversations[0]?.id ?? null);
+    : (currentActiveConversationId ?? conversations[0]?.id ?? null);
 
   return {
     settings: normalizeSettings({ ...current.settings, ...backup.settings }),

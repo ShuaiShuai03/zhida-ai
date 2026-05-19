@@ -31,7 +31,7 @@
 | 🗂️ 管理 | 搜索、置顶、标签、重命名、删除、清空、Markdown 导出 | 会话和非敏感设置保存在浏览器本地 |
 | 🧩 模板 | 内置提示词模板、自定义模板增删改 | 插入模板只填入输入框，不会自动发送 |
 | 📎 输入 | 文本、图片、代码/文本文件、拖拽、粘贴图片 | 文件大小限制见“文件与图片上传” |
-| 🎨 体验 | 深浅色主题、响应式布局、快捷键、圆角现代 UI | 桌面和移动端均可直接使用 |
+| 🎨 体验 | 欢迎引导、紧凑会话侧边栏、深浅色主题、响应式布局、快捷键 | 圆角现代聊天工作区，桌面和移动端均可直接使用 |
 | 🚢 部署 | Node 后端代理、Docker 后端代理、静态预览 | 静态托管只适合查看界面，不能安全提供真实聊天能力 |
 
 ## 为什么选择 Zhida AI？
@@ -43,6 +43,20 @@
 | **兼容 OpenAI 风格接口** | 支持 Chat Completions、Responses、模型列表和 SSE。 |
 | **适合自托管** | 本地默认绑定 `127.0.0.1`，Docker Compose 默认只暴露到宿主机回环地址。 |
 | **质量门禁轻量** | 不依赖 npm install；文档、语法、单测、浏览器 smoke 和 Docker 校验都有现成命令。 |
+
+## 界面预览 / Runtime Screenshots
+
+以下截图来自真实本地运行界面，展示当前的欢迎引导、后端状态提示、提示词建议卡片、紧凑会话侧边栏、模型选择器和圆角聊天工作区。
+
+<p align="center">
+  <strong>Welcome / onboarding screen</strong><br>
+  <img src="assets/screenshots/welcome-showcase.png" alt="智答 AI welcome onboarding screen" width="100%">
+</p>
+
+<p align="center">
+  <strong>Chat workspace screen</strong><br>
+  <img src="assets/screenshots/chat-showcase.png" alt="智答 AI chat conversation screen" width="100%">
+</p>
 
 ## 快速开始
 
@@ -190,15 +204,6 @@ docker compose up -d
 - Docker 后端代理写入 `/data/config.enc.json`。
 - 若显式设置 `ZHIDA_CONFIG_PATH=/data/config.enc.json` 且该路径不存在，会先尝试读取 `/app/server/data/config.enc.json` 或 `LEGACY_DOCKER_CONFIG_PATH`，保存时始终写入 `ZHIDA_CONFIG_PATH`。
 
-## 截图 / 预览
-
-> [!NOTE]
-> 下图是 README 用的产品预览插图，不是实时运行截图。当前仓库没有提交真实截图资产。
-
-<p align="center">
-  <img src="assets/readme/preview.svg" alt="智答 AI 产品预览插图" width="100%">
-</p>
-
 ## 配置 API 与模型能力
 
 上游 API 需要：
@@ -319,7 +324,10 @@ zhida-ai/
 │   └── utils.js
 ├── assets/
 │   ├── favicon.svg
-│   └── readme/
+│   ├── readme/
+│   └── screenshots/
+│       ├── chat-showcase.png
+│       └── welcome-showcase.png
 ├── scripts/
 │   ├── check_markdown.py
 │   ├── mock_api.py
@@ -360,7 +368,7 @@ zhida-ai/
 
 ## Roadmap
 
-- 提供真实截图或短录屏资产，替换 README 当前产品预览插图。
+- 补充更多真实运行预览，例如移动端截图或短录屏。
 - 为更多 OpenAI-compatible 服务补充模型能力识别样例。
 - 补充反向代理部署示例，包括 HTTPS、鉴权和限流建议。
 - 在不暴露密钥的前提下增强配置状态诊断。

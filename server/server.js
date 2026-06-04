@@ -10,6 +10,23 @@ import { fileURLToPath } from 'node:url';
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const ROOT_DIR = resolve(__dirname, '..');
 
+function logEvent(level, event, fields = {}) {
+  const payload = {
+    ts: new Date().toISOString(),
+    level,
+    event,
+  };
+  for (const [key, value] of Object.entries(fields)) {
+    if (value !== undefined) payload[key] = value;
+  }
+  const line = `${JSON.stringify(payload)}\n`;
+  if (level === 'error') {
+    process.stderr.write(line);
+    return;
+  }
+  process.stdout.write(line);
+}
+
 function readIntegerEnv(name, defaultValue, { min = 1, max = Number.MAX_SAFE_INTEGER } = {}) {
   const raw = process.env[name] ?? String(defaultValue);
   const value = String(raw).trim();
@@ -43,6 +60,7 @@ const ENABLE_TEST_ROUTES = process.env.ZHIDA_ENABLE_TEST_ROUTES === '1';
 const CONFIG_VERSION = 1;
 const ENCRYPTION_ALGORITHM = 'aes-256-gcm';
 const REQUEST_BODY_TOO_LARGE = 'request_body_too_large';
+const LOG_MESSAGE_MAX_LENGTH = 500;
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -65,11 +83,55 @@ function sendJson(res, status, payload) {
   res.end(JSON.stringify(payload));
 }
 
+function getRequestPath(req) {
+  return (req.url || '/').split('?')[0] || '/';
+}
+
+function getContentLengthForLog(req) {
+  const raw = req.headers['content-length'];
+  if (raw === undefined) return undefined;
+  return String(Array.isArray(raw) ? raw[0] : raw).trim() || undefined;
+}
+
+function sanitizeLogMessage(message, ...secrets) {
+  let text = String(message || 'unknown_error');
+  for (const secret of [CONFIG_SECRET, ...secrets]) {
+    if (secret) text = text.split(secret).join('[REDACTED]');
+  }
+  text = text.replaceAll('ZHIDA_CONFIG_SECRET', '[REDACTED_SECRET]');
+  return text.length > LOG_MESSAGE_MAX_LENGTH
+    ? `${text.slice(0, LOG_MESSAGE_MAX_LENGTH)}...`
+    : text;
+}
+
+function getErrorMessageForLog(err, fallback = 'unknown_error', ...secrets) {
+  return sanitizeLogMessage(err?.message || fallback, ...secrets);
+}
+
+function logBodyLimitRejected(req) {
+  const fields = {
+    method: req.method,
+    path: getRequestPath(req),
+    limit: getApiBodyLimit(req) ?? OTHER_API_BODY_LIMIT_BYTES,
+  };
+  const contentLength = getContentLengthForLog(req);
+  if (contentLength !== undefined) fields.content_length = contentLength;
+  logEvent('warn', 'body_limit_rejected', fields);
+}
+
+function logNotFound(req) {
+  logEvent('warn', 'not_found', {
+    method: req.method,
+    path: getRequestPath(req),
+  });
+}
+
 function sendError(res, status, message) {
   sendJson(res, status, { error: { message } });
 }
 
 function sendRequestBodyTooLarge(req, res) {
+  logBodyLimitRejected(req);
   const socket = req.socket;
   const payload = JSON.stringify({ error: 'Request body too large' });
   res.writeHead(413, {
@@ -391,6 +453,10 @@ async function handleConfigSave(req, res) {
       apiBaseUrl: saved.apiBaseUrl,
       updatedAt: saved.updatedAt,
     });
+    logEvent('info', 'config_saved', {
+      method: req.method,
+      path: getRequestPath(req),
+    });
   } catch (err) {
     if (handleRequestBodyReadError(req, res, err)) {
       return;
@@ -398,6 +464,11 @@ async function handleConfigSave(req, res) {
     const message = err?.message || '保存配置失败';
     const status = message.includes('ZHIDA_CONFIG_SECRET') ? 500 : 400;
     sendError(res, status, message);
+    logEvent('error', 'config_save_error', {
+      method: req.method,
+      path: getRequestPath(req),
+      error: getErrorMessageForLog(err, '保存配置失败'),
+    });
   }
 }
 
@@ -476,14 +547,54 @@ function readUpstreamChunk(reader, signal) {
 }
 
 async function handleProxy(req, res, upstreamPath) {
+  const startedAt = Date.now();
+  let proxyTerminalLogged = false;
+  const durationMs = () => Date.now() - startedAt;
+  const proxyLogFields = (fields = {}) => ({
+    method: req.method,
+    path: upstreamPath,
+    ...fields,
+  });
+  const logProxyDone = (status) => {
+    if (proxyTerminalLogged) return;
+    proxyTerminalLogged = true;
+    logEvent('info', 'proxy_done', proxyLogFields({
+      status,
+      duration_ms: durationMs(),
+    }));
+  };
+  const logProxyAbort = (reason) => {
+    if (proxyTerminalLogged) return;
+    proxyTerminalLogged = true;
+    logEvent('warn', 'proxy_abort', proxyLogFields({
+      reason,
+      duration_ms: durationMs(),
+    }));
+  };
+  const logProxyError = (error, status, ...secrets) => {
+    if (proxyTerminalLogged) return;
+    proxyTerminalLogged = true;
+    const fields = proxyLogFields({
+      error: error instanceof Error
+        ? getErrorMessageForLog(error, '上游请求失败', ...secrets)
+        : sanitizeLogMessage(error || '上游请求失败', ...secrets),
+      duration_ms: durationMs(),
+    });
+    if (status !== undefined) fields.status = status;
+    logEvent('error', 'proxy_error', fields);
+  };
+  logEvent('info', 'proxy_start', proxyLogFields());
+
   let proxyConfig;
   try {
     proxyConfig = await getProxyConfig();
   } catch (err) {
+    logProxyError(err, undefined);
     proxyConfigError(res, err?.message || '代理配置读取失败');
     return;
   }
   if (!proxyConfig?.apiBaseUrl || !proxyConfig?.apiKey) {
+    logProxyError('代理未配置');
     proxyConfigError(res);
     return;
   }
@@ -508,6 +619,7 @@ async function handleProxy(req, res, upstreamPath) {
   const abortProxy = (reason) => {
     if (completed || controller.signal.aborted) return;
     abortReason = reason;
+    logProxyAbort(reason);
     const err = new Error(reason);
     controller.abort(err);
     cancelUpstreamReader(err);
@@ -549,6 +661,9 @@ async function handleProxy(req, res, upstreamPath) {
       } catch (err) {
         if (abortReason === 'client_closed') return;
         completed = true;
+        if (err?.message !== REQUEST_BODY_TOO_LARGE) {
+          logProxyError(err);
+        }
         if (handleRequestBodyReadError(req, res, err, '读取请求体失败')) {
           return;
         }
@@ -568,6 +683,7 @@ async function handleProxy(req, res, upstreamPath) {
         ? redacted
         : `上游请求失败 (${upstream.status})`;
       completed = true;
+      logProxyError(message, upstream.status, proxyConfig.apiKey);
       sendJson(res, upstream.status, { error: { message } });
       return;
     }
@@ -575,6 +691,7 @@ async function handleProxy(req, res, upstreamPath) {
     if (!upstream.body) {
       completed = true;
       if (responseCannotBeWritten(res, controller.signal)) return;
+      logProxyDone(upstream.status);
       res.end();
       return;
     }
@@ -617,6 +734,7 @@ async function handleProxy(req, res, upstreamPath) {
       }
       completed = true;
       if (!responseCannotBeWritten(res, controller.signal)) {
+        logProxyDone(upstream.status);
         res.end();
       }
     } catch (err) {
@@ -635,6 +753,7 @@ async function handleProxy(req, res, upstreamPath) {
     if (abortReason === 'client_closed') return;
     if (res.headersSent) {
       completed = true;
+      logProxyError(err);
       res.destroy(err);
       return;
     }
@@ -643,9 +762,11 @@ async function handleProxy(req, res, upstreamPath) {
       return;
     }
     if (err?.message === 'proxy_timeout' || err?.name === 'AbortError') {
+      logProxyAbort('proxy_timeout');
       sendError(res, 504, '上游请求超时');
       return;
     }
+    logProxyError(err);
     sendError(res, 502, '上游请求失败');
   } finally {
     cleanupProxyAbort();
@@ -700,6 +821,7 @@ async function handleStatic(req, res) {
 
   const filePath = await resolveStaticPath(req.url || '/');
   if (!filePath) {
+    logNotFound(req);
     sendJson(res, 404, { error: { message: 'Not Found' } });
     return;
   }
@@ -708,6 +830,7 @@ async function handleStatic(req, res) {
   try {
     info = statSync(filePath);
   } catch {
+    logNotFound(req);
     sendJson(res, 404, { error: { message: 'Not Found' } });
     return;
   }
@@ -727,7 +850,19 @@ async function handleStatic(req, res) {
   createReadStream(filePath).pipe(res);
 }
 
+async function getStartupConfigStatus() {
+  try {
+    return await readStoredConfig() ? 'configured' : 'not';
+  } catch {
+    return 'not';
+  }
+}
+
 const server = createServer((req, res) => {
+  logEvent('info', 'request', {
+    method: req.method,
+    path: getRequestPath(req),
+  });
   if (rejectOversizedApiRequest(req, res)) {
     return;
   }
@@ -745,12 +880,16 @@ const server = createServer((req, res) => {
     return;
   }
   if (req.url?.startsWith('/api/')) {
+    logNotFound(req);
     sendJson(res, 404, { error: { message: 'Not Found' } });
     return;
   }
   handleStatic(req, res);
 });
 
-server.listen(PORT, HOST, () => {
-  console.log(`Zhida AI listening on http://${HOST}:${PORT}`);
+server.listen(PORT, HOST, async () => {
+  logEvent('info', 'server_start', {
+    port: PORT,
+    config_status: await getStartupConfigStatus(),
+  });
 });

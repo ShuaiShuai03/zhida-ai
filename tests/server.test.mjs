@@ -64,6 +64,13 @@ function collectChildOutput(child) {
   return () => ({ stdout, stderr });
 }
 
+function parseJsonLogLines(output) {
+  return output
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => JSON.parse(line));
+}
+
 function closeChild(child) {
   if (!child.killed) child.kill();
 }
@@ -561,6 +568,70 @@ test('chat proxy accepts a 2MB base64 image payload under the default body limit
     const chatRequest = mock.requests.find((request) => request.url === '/v1/chat/completions');
     assert.ok(chatRequest);
     assert.ok(Buffer.byteLength(chatRequest.body) > 2 * 1024 * 1024);
+  } finally {
+    closeChild(proxy);
+    mock.server.close();
+    await rm(configDir, { recursive: true, force: true });
+  }
+});
+
+test('proxy request logs structured JSON without secrets', async () => {
+  const mock = await startMockApi();
+  const port = await freePort();
+  const configDir = await mkdtemp(join(tmpdir(), 'zhida-config-test-'));
+  const configSecret = 'config-secret-log-test';
+  const apiKey = 'server-secret-log-test';
+  const proxy = startProxy({
+    ZHIDA_PORT: String(port),
+    ZHIDA_CONFIG_SECRET: configSecret,
+    ZHIDA_CONFIG_PATH: join(configDir, 'config.enc.json'),
+  });
+  const getProxyOutput = collectChildOutput(proxy);
+
+  try {
+    await waitForUrl(`http://127.0.0.1:${port}/index.html`);
+    const saved = await saveConfig(port, `http://127.0.0.1:${mock.port}`, apiKey);
+    assert.equal(saved.status, 200);
+
+    const response = await fetch(`http://127.0.0.1:${port}/api/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer browser-secret-log-test',
+      },
+      body: JSON.stringify({ messages: [], stream: true }),
+    });
+    assert.equal(response.status, 200);
+    assert.match(await response.text(), /proxy/);
+
+    await waitForCondition(
+      () => getProxyOutput().stdout.includes('"event":"proxy_done"'),
+      'proxy_done log line',
+      1000
+    );
+
+    const { stdout, stderr } = getProxyOutput();
+    const combinedOutput = `${stdout}\n${stderr}`;
+    assert.doesNotMatch(combinedOutput, new RegExp(apiKey));
+    assert.doesNotMatch(combinedOutput, new RegExp(configSecret));
+    assert.doesNotMatch(combinedOutput, /browser-secret-log-test/);
+
+    const logs = parseJsonLogLines(stdout);
+    const proxyStart = logs.find((entry) => entry.event === 'proxy_start');
+    assert.ok(proxyStart);
+    assert.match(proxyStart.ts, /^\d{4}-\d{2}-\d{2}T/);
+    assert.equal(proxyStart.level, 'info');
+    assert.equal(proxyStart.method, 'POST');
+    assert.equal(proxyStart.path, '/v1/chat/completions');
+
+    const proxyDone = logs.find((entry) => entry.event === 'proxy_done');
+    assert.ok(proxyDone);
+    assert.match(proxyDone.ts, /^\d{4}-\d{2}-\d{2}T/);
+    assert.equal(proxyDone.level, 'info');
+    assert.equal(proxyDone.method, 'POST');
+    assert.equal(proxyDone.path, '/v1/chat/completions');
+    assert.equal(proxyDone.status, 200);
+    assert.equal(typeof proxyDone.duration_ms, 'number');
   } finally {
     closeChild(proxy);
     mock.server.close();

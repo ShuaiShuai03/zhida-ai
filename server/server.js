@@ -35,10 +35,14 @@ const CONFIG_PATH_USES_DEFAULT = !process.env.ZHIDA_CONFIG_PATH;
 const CONFIG_PATH = resolve(process.env.ZHIDA_CONFIG_PATH || DEFAULT_CONFIG_PATH);
 const CONFIG_SECRET = process.env.ZHIDA_CONFIG_SECRET || '';
 const PROXY_TIMEOUT_MS = readIntegerEnv('ZHIDA_PROXY_TIMEOUT_MS', '120000');
-const MAX_PROXY_BODY_BYTES = readIntegerEnv('ZHIDA_PROXY_MAX_BODY_BYTES', String(10 * 1024 * 1024));
+const CONFIG_BODY_LIMIT_BYTES = 256 * 1024;
+const DEFAULT_PROXY_BODY_LIMIT_BYTES = 25 * 1024 * 1024;
+const PROXY_BODY_LIMIT_BYTES = readIntegerEnv('ZHIDA_PROXY_MAX_BODY_BYTES', String(DEFAULT_PROXY_BODY_LIMIT_BYTES));
+const OTHER_API_BODY_LIMIT_BYTES = 512 * 1024;
 const ENABLE_TEST_ROUTES = process.env.ZHIDA_ENABLE_TEST_ROUTES === '1';
 const CONFIG_VERSION = 1;
 const ENCRYPTION_ALGORITHM = 'aes-256-gcm';
+const REQUEST_BODY_TOO_LARGE = 'request_body_too_large';
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -63,6 +67,20 @@ function sendJson(res, status, payload) {
 
 function sendError(res, status, message) {
   sendJson(res, status, { error: { message } });
+}
+
+function sendRequestBodyTooLarge(req, res) {
+  const socket = req.socket;
+  const payload = JSON.stringify({ error: 'Request body too large' });
+  res.writeHead(413, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Cache-Control': 'no-store',
+    'Connection': 'close',
+    'Content-Length': Buffer.byteLength(payload),
+  });
+  res.end(payload, () => {
+    if (!socket.destroyed) socket.destroy();
+  });
 }
 
 function proxyConfigError(res, message = '代理未配置：请先在设置中保存 API 地址和密钥') {
@@ -252,25 +270,103 @@ function isResponsesUnsupportedError(upstreamPath, status, rawError) {
     .test(rawError || '');
 }
 
-async function readJsonBody(req) {
-  const contentLength = Number.parseInt(req.headers['content-length'] || '0', 10);
-  if (contentLength > MAX_PROXY_BODY_BYTES) {
-    throw new Error('请求体过大');
+function getApiBodyLimit(req) {
+  if (!req.url?.startsWith('/api/')) return null;
+  const path = req.url.split('?')[0];
+  if (path === '/api/config') return CONFIG_BODY_LIMIT_BYTES;
+  if (path === '/api/chat/completions' || path === '/api/responses') {
+    return PROXY_BODY_LIMIT_BYTES;
   }
-  let received = 0;
-  const chunks = [];
-  for await (const chunk of req) {
-    received += chunk.length;
-    if (received > MAX_PROXY_BODY_BYTES) {
-      throw new Error('请求体过大');
-    }
-    chunks.push(chunk);
+  return OTHER_API_BODY_LIMIT_BYTES;
+}
+
+function contentLengthExceedsLimit(req, limitBytes) {
+  const raw = req.headers['content-length'];
+  if (raw === undefined) return false;
+  const value = String(Array.isArray(raw) ? raw[0] : raw).trim();
+  if (!/^\d+$/.test(value)) return false;
+  return BigInt(value) > BigInt(limitBytes);
+}
+
+async function readRequestBody(req, limitBytes) {
+  if (contentLengthExceedsLimit(req, limitBytes)) {
+    throw new Error(REQUEST_BODY_TOO_LARGE);
   }
+
+  return new Promise((resolveBody, rejectBody) => {
+    let received = 0;
+    let settled = false;
+    const chunks = [];
+
+    const cleanup = () => {
+      req.off('data', onData);
+      req.off('end', onEnd);
+      req.off('error', onError);
+      req.off('aborted', onAborted);
+    };
+    const rejectOnce = (err) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      rejectBody(err);
+    };
+    const onData = (chunk) => {
+      received += chunk.length;
+      if (received > limitBytes) {
+        req.pause();
+        rejectOnce(new Error(REQUEST_BODY_TOO_LARGE));
+        return;
+      }
+      chunks.push(chunk);
+    };
+    const onEnd = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolveBody(Buffer.concat(chunks));
+    };
+    const onError = (err) => rejectOnce(err);
+    const onAborted = () => rejectOnce(new Error('client_closed'));
+
+    req.on('data', onData);
+    req.on('end', onEnd);
+    req.on('error', onError);
+    req.on('aborted', onAborted);
+  });
+}
+
+async function readJsonBody(req, limitBytes) {
+  const rawBody = await readRequestBody(req, limitBytes);
   try {
-    return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
+    return JSON.parse(rawBody.toString('utf8') || '{}');
   } catch {
     throw new Error('请求体必须是合法 JSON');
   }
+}
+
+async function readRequestBodyWithLimit(req) {
+  return readRequestBody(req, getApiBodyLimit(req) ?? OTHER_API_BODY_LIMIT_BYTES);
+}
+
+function handleRequestBodyReadError(req, res, err, fallbackMessage) {
+  if (err?.message === REQUEST_BODY_TOO_LARGE) {
+    sendRequestBodyTooLarge(req, res);
+    return true;
+  }
+  if (fallbackMessage) {
+    sendError(res, 400, fallbackMessage);
+    return true;
+  }
+  return false;
+}
+
+function rejectOversizedApiRequest(req, res) {
+  const limitBytes = getApiBodyLimit(req);
+  if (limitBytes === null || !contentLengthExceedsLimit(req, limitBytes)) {
+    return false;
+  }
+  sendRequestBodyTooLarge(req, res);
+  return true;
 }
 
 async function handleConfigStatus(_req, res) {
@@ -288,7 +384,7 @@ async function handleConfigStatus(_req, res) {
 
 async function handleConfigSave(req, res) {
   try {
-    const body = await readJsonBody(req);
+    const body = await readJsonBody(req, CONFIG_BODY_LIMIT_BYTES);
     const saved = await saveProxyConfig(body);
     sendJson(res, 200, {
       configured: true,
@@ -296,28 +392,13 @@ async function handleConfigSave(req, res) {
       updatedAt: saved.updatedAt,
     });
   } catch (err) {
+    if (handleRequestBodyReadError(req, res, err)) {
+      return;
+    }
     const message = err?.message || '保存配置失败';
     const status = message.includes('ZHIDA_CONFIG_SECRET') ? 500 : 400;
     sendError(res, status, message);
   }
-}
-
-async function readRequestBodyWithLimit(req) {
-  const contentLength = Number.parseInt(req.headers['content-length'] || '0', 10);
-  if (contentLength > MAX_PROXY_BODY_BYTES) {
-    throw new Error('request_body_too_large');
-  }
-
-  let received = 0;
-  const chunks = [];
-  for await (const chunk of req) {
-    received += chunk.length;
-    if (received > MAX_PROXY_BODY_BYTES) {
-      throw new Error('request_body_too_large');
-    }
-    chunks.push(chunk);
-  }
-  return Buffer.concat(chunks);
 }
 
 function getAbortError(signal) {
@@ -361,6 +442,39 @@ function waitForDrainOrAbort(res, signal) {
   });
 }
 
+function responseCannotBeWritten(res, signal) {
+  return res.destroyed || res.writableEnded || signal.aborted;
+}
+
+function readUpstreamChunk(reader, signal) {
+  return new Promise((resolveRead, rejectRead) => {
+    if (signal.aborted) {
+      rejectRead(getAbortError(signal));
+      return;
+    }
+
+    const cleanup = () => {
+      signal.removeEventListener('abort', onAbort);
+    };
+    const onAbort = () => {
+      cleanup();
+      rejectRead(getAbortError(signal));
+    };
+
+    signal.addEventListener('abort', onAbort, { once: true });
+    reader.read().then(
+      (result) => {
+        cleanup();
+        resolveRead(result);
+      },
+      (err) => {
+        cleanup();
+        rejectRead(err);
+      }
+    );
+  });
+}
+
 async function handleProxy(req, res, upstreamPath) {
   let proxyConfig;
   try {
@@ -378,11 +492,25 @@ async function handleProxy(req, res, upstreamPath) {
   let timeout = null;
   let completed = false;
   let abortReason = null;
+  let upstreamReader = null;
+  let upstreamReaderCancelRequested = false;
+
+  const cancelUpstreamReader = (reason) => {
+    if (!upstreamReader || upstreamReaderCancelRequested) return;
+    upstreamReaderCancelRequested = true;
+    try {
+      upstreamReader.cancel(reason).catch(() => {});
+    } catch {
+      // Best-effort cancellation only.
+    }
+  };
 
   const abortProxy = (reason) => {
     if (completed || controller.signal.aborted) return;
     abortReason = reason;
-    controller.abort(new Error(reason));
+    const err = new Error(reason);
+    controller.abort(err);
+    cancelUpstreamReader(err);
   };
   const refreshTimeout = () => {
     clearTimeout(timeout);
@@ -421,12 +549,9 @@ async function handleProxy(req, res, upstreamPath) {
       } catch (err) {
         if (abortReason === 'client_closed') return;
         completed = true;
-        if (err?.message === 'request_body_too_large') {
-          sendError(res, 413, '请求体过大');
+        if (handleRequestBodyReadError(req, res, err, '读取请求体失败')) {
           return;
         }
-        sendError(res, 400, '读取请求体失败');
-        return;
       }
     }
 
@@ -447,6 +572,20 @@ async function handleProxy(req, res, upstreamPath) {
       return;
     }
 
+    if (!upstream.body) {
+      completed = true;
+      if (responseCannotBeWritten(res, controller.signal)) return;
+      res.end();
+      return;
+    }
+
+    upstreamReader = upstream.body.getReader();
+    if (responseCannotBeWritten(res, controller.signal)) {
+      completed = true;
+      cancelUpstreamReader(getAbortError(controller.signal));
+      return;
+    }
+
     const headers = {
       'Cache-Control': 'no-store',
       'Content-Type': upstream.headers.get('content-type') || 'application/octet-stream',
@@ -455,31 +594,44 @@ async function handleProxy(req, res, upstreamPath) {
       headers.Connection = 'keep-alive';
       headers['X-Accel-Buffering'] = 'no';
     }
-    res.writeHead(upstream.status, headers);
-
-    if (!upstream.body) {
+    if (responseCannotBeWritten(res, controller.signal)) {
       completed = true;
-      res.end();
+      cancelUpstreamReader(getAbortError(controller.signal));
       return;
     }
+    res.writeHead(upstream.status, headers);
 
-    const reader = upstream.body.getReader();
     try {
       while (true) {
-        const { done, value } = await reader.read();
+        const { done, value } = await readUpstreamChunk(upstreamReader, controller.signal);
         if (done) break;
         refreshTimeout();
+        if (responseCannotBeWritten(res, controller.signal)) {
+          cancelUpstreamReader(getAbortError(controller.signal));
+          break;
+        }
         if (!res.write(Buffer.from(value))) {
           await waitForDrainOrAbort(res, controller.signal);
           refreshTimeout();
         }
       }
       completed = true;
-      res.end();
+      if (!responseCannotBeWritten(res, controller.signal)) {
+        res.end();
+      }
+    } catch (err) {
+      cancelUpstreamReader(err);
+      throw err;
     } finally {
-      reader.releaseLock();
+      try {
+        upstreamReader?.releaseLock();
+      } catch {
+        // Ignore pending-read release failures after hard cancellation.
+      }
+      upstreamReader = null;
     }
   } catch (err) {
+    cancelUpstreamReader(err);
     if (abortReason === 'client_closed') return;
     if (res.headersSent) {
       completed = true;
@@ -487,8 +639,7 @@ async function handleProxy(req, res, upstreamPath) {
       return;
     }
     completed = true;
-    if (err?.message === 'request_body_too_large') {
-      sendError(res, 413, '请求体过大');
+    if (handleRequestBodyReadError(req, res, err)) {
       return;
     }
     if (err?.message === 'proxy_timeout' || err?.name === 'AbortError') {
@@ -577,6 +728,9 @@ async function handleStatic(req, res) {
 }
 
 const server = createServer((req, res) => {
+  if (rejectOversizedApiRequest(req, res)) {
+    return;
+  }
   if (req.method === 'GET' && req.url === '/api/config/status') {
     handleConfigStatus(req, res);
     return;

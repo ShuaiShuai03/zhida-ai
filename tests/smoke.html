@@ -294,6 +294,13 @@
       fail(`Timeout waiting for: ${label}`);
     }
 
+    async function waitForComposerIdle(doc, label) {
+      await waitFor(
+        () => doc.querySelector('#stop-btn')?.classList.contains('hidden') && !doc.querySelector('.loading-indicator'),
+        label
+      );
+    }
+
     function getFreshStateSnapshot(doc) {
       const messageArea = doc.querySelector('#chat-messages-inner');
       if (!messageArea) return null;
@@ -308,6 +315,122 @@
         return { kind: 'no-users' };
       }
       return null;
+    }
+
+    function createChatSseChunk(text) {
+      return `data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`;
+    }
+
+    function createStreamingMarkdownResponse(win, onReadyToFinish) {
+      const encoder = new win.TextEncoder();
+      const stream = new win.ReadableStream({
+        start(controller) {
+          controller.enqueue(encoder.encode(createChatSseChunk('## Streaming Markdown\n```js\nconst answer = 42;')));
+          onReadyToFinish(() => {
+            controller.enqueue(encoder.encode(createChatSseChunk('\nconsole.log(answer);\n```\n\nInline math: $x + y$')));
+            controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+            controller.close();
+          });
+        },
+      });
+
+      return new win.Response(stream, {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream; charset=utf-8' },
+      });
+    }
+
+    function installStreamingMarkdownFetchMock(win) {
+      const originalFetch = win.fetch.bind(win);
+      let intercepted = false;
+      let finishStream = null;
+
+      win.fetch = (resource, options = {}) => {
+        const rawUrl = typeof resource === 'string' ? resource : resource?.url;
+        const url = new URL(rawUrl, win.location.href);
+        const body = String(options?.body || '');
+
+        if (url.pathname === '/api/chat/completions' && body.includes('streaming markdown smoke')) {
+          intercepted = true;
+          return Promise.resolve(createStreamingMarkdownResponse(win, (finish) => {
+            finishStream = finish;
+          }));
+        }
+
+        return originalFetch(resource, options);
+      };
+
+      return {
+        restore() {
+          win.fetch = originalFetch;
+        },
+        wasIntercepted() {
+          return intercepted;
+        },
+        finishStream() {
+          if (!finishStream) {
+            fail('streaming markdown smoke stream was not ready to finish');
+          }
+          const finish = finishStream;
+          finishStream = null;
+          finish();
+        },
+      };
+    }
+
+    function createAbortableSlowResponse(win, signal) {
+      const encoder = new win.TextEncoder();
+      let cleanupAbort = () => {};
+      const stream = new win.ReadableStream({
+        start(controller) {
+          const abortStream = () => {
+            cleanupAbort();
+            controller.error(new win.DOMException('Aborted', 'AbortError'));
+          };
+          cleanupAbort = () => signal?.removeEventListener('abort', abortStream);
+          if (signal?.aborted) {
+            abortStream();
+            return;
+          }
+          signal?.addEventListener('abort', abortStream, { once: true });
+          controller.enqueue(encoder.encode(createChatSseChunk('Partial ')));
+        },
+        cancel() {
+          cleanupAbort();
+        },
+      });
+
+      return new win.Response(stream, {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream; charset=utf-8' },
+      });
+    }
+
+    function installSlowStreamFetchMock(win) {
+      const originalFetch = win.fetch.bind(win);
+      let intercepted = false;
+
+      win.fetch = (resource, options = {}) => {
+        const rawUrl = typeof resource === 'string' ? resource : resource?.url;
+        const url = new URL(rawUrl, win.location.href);
+        const body = String(options?.body || '');
+
+        if (url.pathname === '/api/chat/completions' && body.includes('slow response please')) {
+          intercepted = true;
+          return Promise.resolve(createAbortableSlowResponse(win, options?.signal));
+        }
+
+        return originalFetch(resource, options);
+      };
+
+      return {
+        restore() {
+          win.fetch = originalFetch;
+        },
+        wasIntercepted() {
+          return intercepted;
+        },
+      };
     }
 
     async function main() {
@@ -666,6 +789,62 @@
         () => Array.from(doc.querySelectorAll('.message--ai .message__content')).some((node) => node.textContent.includes('Smoke test reply')),
         'basic AI reply'
       );
+      await waitForComposerIdle(doc, 'basic AI reply finalized');
+
+      const markdownStreamMock = installStreamingMarkdownFetchMock(win);
+      try {
+        clickBySelector('#new-chat-btn', doc, '开启流式 Markdown 验证对话');
+        inputBySelector('#chat-input', 'streaming markdown smoke', doc, '输入流式 Markdown 验证消息');
+        clickBySelector('#send-btn', doc, '发送流式 Markdown 验证消息');
+
+        await waitFor(
+          () => markdownStreamMock.wasIntercepted(),
+          'streaming markdown smoke request intercepted'
+        );
+        const streamingMarkdownNode = await waitFor(
+          () => {
+            const node = doc.querySelector('.streaming-content');
+            return node?.textContent.includes('const answer = 42') ? node : null;
+          },
+          'streaming markdown code text visible'
+        );
+        if (!markdownStreamMock.wasIntercepted()) {
+          fail('streaming markdown smoke request should be intercepted by the browser mock');
+        }
+        if (!streamingMarkdownNode.querySelector('pre code')) {
+          fail('streaming markdown should keep code block structure while streaming');
+        }
+        if (streamingMarkdownNode.querySelector('.hljs-keyword, .hljs-built_in, .hljs-number, .katex')) {
+          fail('streaming markdown should not run highlight.js or KaTeX before completion');
+        }
+
+        markdownStreamMock.finishStream();
+        const finalMarkdownNode = await waitFor(
+          () => Array.from(doc.querySelectorAll('.message--ai .message__content')).find((node) => (
+            !node.classList.contains('streaming-content')
+            && node.textContent.includes('const answer = 42')
+            && node.querySelector('pre code.hljs')
+          )),
+          'final streaming markdown render'
+        );
+        if (!finalMarkdownNode.querySelector('.hljs-keyword, .hljs-built_in, .hljs-number')) {
+          fail('final markdown code block should include highlight.js markup');
+        }
+        if (!finalMarkdownNode.querySelector('.katex')) {
+          fail('final markdown math should be rendered by KaTeX');
+        }
+      } finally {
+        markdownStreamMock.restore();
+      }
+      const helloConversationAfterMarkdown = await waitFor(
+        () => findByText('.conversation-item', 'hello smoke', doc),
+        'hello smoke conversation available after markdown smoke'
+      );
+      click(helloConversationAfterMarkdown);
+      await waitFor(
+        () => findByText('.conversation-item.active', 'hello smoke', doc),
+        'hello smoke conversation active after markdown smoke'
+      );
 
       clickBySelector('#input-template-btn', doc, '打开模板弹窗');
       await waitFor(
@@ -810,6 +989,7 @@
         () => Array.from(doc.querySelectorAll('.message--ai .message__content')).some((node) => node.textContent.includes('reasoning: high')),
         'reasoning effort forwarded to responses'
       );
+      await waitForComposerIdle(doc, 'reasoning response finalized');
       clickBySelector('#model-trigger', doc, '打开模型选择器');
       const standardOption = await waitFor(
         () => findByText('.model-selector__item', 'Smoke Standard', doc),
@@ -821,69 +1001,78 @@
         'standard model selected before slow streaming test'
       );
 
-      clickBySelector('#new-chat-btn', doc, '开启慢回复对话');
-      inputBySelector('#chat-input', 'slow response please', doc, '输入慢回复消息');
-      clickBySelector('#send-btn', doc, '发送慢回复消息');
-      await waitFor(
-        () => {
-          const loadingVisible = Boolean(doc.querySelector('.loading-indicator'));
-          const stopVisible = !doc.querySelector('#stop-btn')?.classList.contains('hidden');
-          return loadingVisible || stopVisible;
-        },
-        'loading indicator or stop state visible after slow send'
-      );
-      await waitFor(
-        () => !doc.querySelector('#stop-btn')?.classList.contains('hidden'),
-        'stop button visible'
-      );
-      if (requireElement('.chat-area', doc, '检查生成中 aria-busy').getAttribute('aria-busy') !== 'true') {
-        fail('chat area should expose aria-busy while generating');
-      }
-      if (safeText('#composer-status', doc).trim() === '') {
-        fail('composer should announce generating state to screen readers');
-      }
-      if (requireElement('#stop-btn', doc, '检查停止按钮 aria-hidden').getAttribute('aria-hidden') !== 'false') {
-        fail('visible stop button should not be aria-hidden');
-      }
-      if (requireElement('#send-btn', doc, '检查发送按钮 aria-hidden').getAttribute('aria-hidden') !== 'true') {
-        fail('hidden send button should be aria-hidden while stop is visible');
-      }
-      await attachTextFileDuringSmoke(win, doc, 'queued-during-stream.txt', 'queued while streaming');
-      if (!requireElement('#send-btn', doc, '检查流式期间发送按钮禁用态').disabled) {
-        fail('send button should stay disabled while streaming even when an attachment is queued');
-      }
-      assertFocusVisible(doc, '#stop-btn', '停止按钮 focus-visible');
-      const activeStopRect = requireElement('#stop-btn', doc, '读取停止按钮').getBoundingClientRect();
-      if (!requireElement('#send-btn', doc, '检查发送按钮显示状态').classList.contains('hidden')) {
-        fail('send button should be hidden while stop button is visible');
-      }
-      if (activeStopRect.width < 96) {
-        fail('stop button should remain large enough while generating');
-      }
-      await waitFor(
-        () => Array.from(doc.querySelectorAll('.message--ai .message__content')).some((node) => node.textContent.includes('Partial')),
-        'partial response visible'
-      );
-      clickBySelector('.stop-btn__label', doc, '点击停止按钮');
-      await waitFor(
-        () => !doc.querySelector('.loading-indicator'),
-        'loading indicator hidden after stop'
-      );
-      await waitFor(
-        () => doc.querySelector('#stop-btn')?.classList.contains('hidden'),
-        'stop button should return hidden after abort'
-      );
-      if (requireElement('#send-btn', doc, '检查发送按钮显示状态').classList.contains('hidden')) {
-        fail('send button should reappear after stop');
-      }
-      if (requireElement('#send-btn', doc, '检查附件态发送按钮恢复').disabled) {
-        fail('send button should re-enable after stop when an attachment is queued');
-      }
-      if (requireElement('.chat-area', doc, '检查停止后 aria-busy').getAttribute('aria-busy') !== 'false') {
-        fail('chat area should clear aria-busy after stop');
-      }
-      if (safeText('#composer-status', doc).trim() !== '') {
-        fail('composer status should clear after stop');
+      const slowStreamMock = installSlowStreamFetchMock(win);
+      try {
+        clickBySelector('#new-chat-btn', doc, '开启慢回复对话');
+        inputBySelector('#chat-input', 'slow response please', doc, '输入慢回复消息');
+        clickBySelector('#send-btn', doc, '发送慢回复消息');
+        await waitFor(
+          () => slowStreamMock.wasIntercepted(),
+          'slow response request intercepted'
+        );
+        await waitFor(
+          () => {
+            const loadingVisible = Boolean(doc.querySelector('.loading-indicator'));
+            const stopVisible = !doc.querySelector('#stop-btn')?.classList.contains('hidden');
+            return loadingVisible || stopVisible;
+          },
+          'loading indicator or stop state visible after slow send'
+        );
+        await waitFor(
+          () => !doc.querySelector('#stop-btn')?.classList.contains('hidden'),
+          'stop button visible'
+        );
+        await waitFor(
+          () => Array.from(doc.querySelectorAll('.message--ai .message__content')).some((node) => node.textContent.includes('Partial')),
+          'partial response visible'
+        );
+        if (requireElement('.chat-area', doc, '检查生成中 aria-busy').getAttribute('aria-busy') !== 'true') {
+          fail('chat area should expose aria-busy while generating');
+        }
+        if (safeText('#composer-status', doc).trim() === '') {
+          fail('composer should announce generating state to screen readers');
+        }
+        if (requireElement('#stop-btn', doc, '检查停止按钮 aria-hidden').getAttribute('aria-hidden') !== 'false') {
+          fail('visible stop button should not be aria-hidden');
+        }
+        if (requireElement('#send-btn', doc, '检查发送按钮 aria-hidden').getAttribute('aria-hidden') !== 'true') {
+          fail('hidden send button should be aria-hidden while stop is visible');
+        }
+        await attachTextFileDuringSmoke(win, doc, 'queued-during-stream.txt', 'queued while streaming');
+        if (!requireElement('#send-btn', doc, '检查流式期间发送按钮禁用态').disabled) {
+          fail('send button should stay disabled while streaming even when an attachment is queued');
+        }
+        assertFocusVisible(doc, '#stop-btn', '停止按钮 focus-visible');
+        const activeStopRect = requireElement('#stop-btn', doc, '读取停止按钮').getBoundingClientRect();
+        if (!requireElement('#send-btn', doc, '检查发送按钮显示状态').classList.contains('hidden')) {
+          fail('send button should be hidden while stop button is visible');
+        }
+        if (activeStopRect.width < 96) {
+          fail('stop button should remain large enough while generating');
+        }
+        clickBySelector('.stop-btn__label', doc, '点击停止按钮');
+        await waitFor(
+          () => !doc.querySelector('.loading-indicator'),
+          'loading indicator hidden after stop'
+        );
+        await waitFor(
+          () => doc.querySelector('#stop-btn')?.classList.contains('hidden'),
+          'stop button should return hidden after abort'
+        );
+        if (requireElement('#send-btn', doc, '检查发送按钮显示状态').classList.contains('hidden')) {
+          fail('send button should reappear after stop');
+        }
+        if (requireElement('#send-btn', doc, '检查附件态发送按钮恢复').disabled) {
+          fail('send button should re-enable after stop when an attachment is queued');
+        }
+        if (requireElement('.chat-area', doc, '检查停止后 aria-busy').getAttribute('aria-busy') !== 'false') {
+          fail('chat area should clear aria-busy after stop');
+        }
+        if (safeText('#composer-status', doc).trim() !== '') {
+          fail('composer status should clear after stop');
+        }
+      } finally {
+        slowStreamMock.restore();
       }
 
       inputBySelector('#chat-input', 'follow up after stop', doc, '输入中断后消息');

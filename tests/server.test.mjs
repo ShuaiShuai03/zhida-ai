@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { createServer } from 'node:http';
+import { createServer, request as httpRequest } from 'node:http';
 import { createCipheriv, createHash, randomBytes } from 'node:crypto';
 import { once } from 'node:events';
 import { dirname, join } from 'node:path';
@@ -32,6 +32,15 @@ async function waitForUrl(url) {
   throw new Error(`Timed out waiting for ${url}`);
 }
 
+async function waitForCondition(predicate, label, timeoutMs = 1000) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    if (predicate()) return;
+    await delay(25);
+  }
+  throw new Error(`Timed out waiting for ${label}`);
+}
+
 function startProxy(env) {
   const child = spawn(process.execPath, [join(process.cwd(), 'server/server.js')], {
     cwd: process.cwd(),
@@ -39,6 +48,20 @@ function startProxy(env) {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   return child;
+}
+
+function collectChildOutput(child) {
+  let stdout = '';
+  let stderr = '';
+  child.stdout.setEncoding('utf8');
+  child.stderr.setEncoding('utf8');
+  child.stdout.on('data', (chunk) => {
+    stdout += chunk;
+  });
+  child.stderr.on('data', (chunk) => {
+    stderr += chunk;
+  });
+  return () => ({ stdout, stderr });
 }
 
 function closeChild(child) {
@@ -55,6 +78,31 @@ async function closeServer(server) {
       }
       resolveClose();
     });
+  });
+}
+
+async function sendRawRequest(port, { method, path, headers = {}, chunks = [] }) {
+  return new Promise((resolveRequest, rejectRequest) => {
+    const req = httpRequest({
+      hostname: '127.0.0.1',
+      port,
+      method,
+      path,
+      headers,
+    }, (res) => {
+      const responseChunks = [];
+      res.on('data', (chunk) => responseChunks.push(chunk));
+      res.on('end', () => {
+        resolveRequest({
+          status: res.statusCode,
+          headers: res.headers,
+          body: Buffer.concat(responseChunks).toString('utf8'),
+        });
+      });
+    });
+    req.on('error', rejectRequest);
+    for (const chunk of chunks) req.write(chunk);
+    req.end();
   });
 }
 
@@ -100,6 +148,25 @@ function makeEncryptedConfigPayload(secret, { apiBaseUrl, apiKey }) {
 async function writeEncryptedConfig(filePath, secret, apiBaseUrl, apiKey = 'legacy-secret') {
   const payload = makeEncryptedConfigPayload(secret, { apiBaseUrl, apiKey });
   await writeFile(filePath, `${JSON.stringify(payload, null, 2)}\n`, { mode: 0o600 });
+}
+
+function makeVisionChatPayload(base64Bytes = 2 * 1024 * 1024) {
+  return JSON.stringify({
+    model: 'gpt-test',
+    messages: [{
+      role: 'user',
+      content: [
+        { type: 'text', text: 'describe this image' },
+        {
+          type: 'image_url',
+          image_url: {
+            url: `data:image/png;base64,${'a'.repeat(base64Bytes)}`,
+          },
+        },
+      ],
+    }],
+    stream: true,
+  });
 }
 
 async function startMockApi() {
@@ -215,6 +282,9 @@ async function startStreamingMockApi() {
     get streamClosed() {
       return streamClosed;
     },
+    get chunksWritten() {
+      return chunksWritten;
+    },
     async close() {
       for (const interval of intervals) clearInterval(interval);
       intervals.clear();
@@ -262,6 +332,48 @@ async function startStalledStreamMockApi() {
       await closeServer(server);
     },
   };
+}
+
+async function writeAbortIgnoringFetchPreload(filePath) {
+  await writeFile(filePath, `
+import { writeFileSync } from 'node:fs';
+
+const encoder = new TextEncoder();
+const probePath = process.env.ZHIDA_FETCH_PROBE_PATH;
+let fetchCalls = 0;
+let cancelCalls = 0;
+
+function writeProbe(event) {
+  if (!probePath) return;
+  writeFileSync(probePath, JSON.stringify({ event, fetchCalls, cancelCalls }) + '\\n');
+}
+
+globalThis.fetch = async (url) => {
+  fetchCalls += 1;
+  writeProbe('fetch');
+  if (!String(url).includes('/v1/chat/completions')) {
+    return new Response('{}', {
+      status: 404,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  return new Response(new ReadableStream({
+    start(controller) {
+      controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"start"}}]}\\n\\n'));
+      writeProbe('start');
+    },
+    cancel() {
+      cancelCalls += 1;
+      writeProbe('cancel');
+      return new Promise(() => {});
+    },
+  }), {
+    status: 200,
+    headers: { 'Content-Type': 'text/event-stream' },
+  });
+};
+`);
 }
 
 async function saveConfig(port, apiBaseUrl, apiKey = 'server-secret') {
@@ -387,6 +499,152 @@ test('invalid numeric environment variables fail fast', async () => {
   }
 });
 
+test('config save rejects request bodies larger than 256KB before parsing', async () => {
+  const port = await freePort();
+  const configDir = await mkdtemp(join(tmpdir(), 'zhida-config-test-'));
+  const proxy = startProxy({
+    ZHIDA_PORT: String(port),
+    ZHIDA_CONFIG_SECRET: 'test-secret',
+    ZHIDA_CONFIG_PATH: join(configDir, 'config.enc.json'),
+  });
+
+  try {
+    await waitForUrl(`http://127.0.0.1:${port}/index.html`);
+    const body = Buffer.from(JSON.stringify({
+      apiBaseUrl: 'http://127.0.0.1:11434',
+      apiKey: 'x'.repeat(256 * 1024),
+    }));
+    const response = await sendRawRequest(port, {
+      method: 'PUT',
+      path: '/api/config',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': String(body.length),
+      },
+      chunks: [body],
+    });
+
+    assert.equal(response.status, 413);
+    assert.equal(response.headers.connection, 'close');
+    assert.deepEqual(JSON.parse(response.body), { error: 'Request body too large' });
+  } finally {
+    closeChild(proxy);
+    await rm(configDir, { recursive: true, force: true });
+  }
+});
+
+test('chat proxy accepts a 2MB base64 image payload under the default body limit', async () => {
+  const mock = await startMockApi();
+  const port = await freePort();
+  const configDir = await mkdtemp(join(tmpdir(), 'zhida-config-test-'));
+  const proxy = startProxy({
+    ZHIDA_PORT: String(port),
+    ZHIDA_CONFIG_SECRET: 'test-secret',
+    ZHIDA_CONFIG_PATH: join(configDir, 'config.enc.json'),
+  });
+
+  try {
+    await waitForUrl(`http://127.0.0.1:${port}/index.html`);
+    const saved = await saveConfig(port, `http://127.0.0.1:${mock.port}`);
+    assert.equal(saved.status, 200);
+
+    const body = makeVisionChatPayload();
+    assert.ok(Buffer.byteLength(body) > 2 * 1024 * 1024);
+    const response = await fetch(`http://127.0.0.1:${port}/api/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+    });
+
+    assert.equal(response.status, 200);
+    assert.match(await response.text(), /proxy/);
+    const chatRequest = mock.requests.find((request) => request.url === '/v1/chat/completions');
+    assert.ok(chatRequest);
+    assert.ok(Buffer.byteLength(chatRequest.body) > 2 * 1024 * 1024);
+  } finally {
+    closeChild(proxy);
+    mock.server.close();
+    await rm(configDir, { recursive: true, force: true });
+  }
+});
+
+test('configured proxy body limit accepts below-limit chat requests and rejects oversized streams', async () => {
+  const mock = await startMockApi();
+  const port = await freePort();
+  const configDir = await mkdtemp(join(tmpdir(), 'zhida-config-test-'));
+  const proxy = startProxy({
+    ZHIDA_PORT: String(port),
+    ZHIDA_CONFIG_SECRET: 'test-secret',
+    ZHIDA_CONFIG_PATH: join(configDir, 'config.enc.json'),
+    ZHIDA_PROXY_MAX_BODY_BYTES: String(1024 * 1024),
+  });
+
+  try {
+    await waitForUrl(`http://127.0.0.1:${port}/index.html`);
+    const saved = await saveConfig(port, `http://127.0.0.1:${mock.port}`);
+    assert.equal(saved.status, 200);
+
+    const belowLimitBody = makeVisionChatPayload(768 * 1024);
+    assert.ok(Buffer.byteLength(belowLimitBody) > 512 * 1024);
+    assert.ok(Buffer.byteLength(belowLimitBody) < 1024 * 1024);
+    const accepted = await fetch(`http://127.0.0.1:${port}/api/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: belowLimitBody,
+    });
+    assert.equal(accepted.status, 200);
+    assert.match(await accepted.text(), /proxy/);
+    assert.equal(mock.requests.filter((request) => request.url === '/v1/chat/completions').length, 1);
+
+    const response = await sendRawRequest(port, {
+      method: 'POST',
+      path: '/api/chat/completions',
+      headers: { 'Content-Type': 'application/json' },
+      chunks: [Buffer.from(makeVisionChatPayload())],
+    });
+
+    assert.equal(response.status, 413);
+    assert.equal(response.headers.connection, 'close');
+    assert.deepEqual(JSON.parse(response.body), { error: 'Request body too large' });
+    assert.equal(mock.requests.filter((request) => request.url === '/v1/chat/completions').length, 1);
+  } finally {
+    closeChild(proxy);
+    mock.server.close();
+    await rm(configDir, { recursive: true, force: true });
+  }
+});
+
+test('unknown api paths keep the 512KB request body limit', async () => {
+  const port = await freePort();
+  const configDir = await mkdtemp(join(tmpdir(), 'zhida-config-test-'));
+  const proxy = startProxy({
+    ZHIDA_PORT: String(port),
+    ZHIDA_CONFIG_SECRET: 'test-secret',
+    ZHIDA_CONFIG_PATH: join(configDir, 'config.enc.json'),
+  });
+
+  try {
+    await waitForUrl(`http://127.0.0.1:${port}/index.html`);
+    const body = Buffer.alloc(512 * 1024 + 1, 'x');
+    const response = await sendRawRequest(port, {
+      method: 'POST',
+      path: '/api/not-allowed',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': String(body.length),
+      },
+      chunks: [body],
+    });
+
+    assert.equal(response.status, 413);
+    assert.equal(response.headers.connection, 'close');
+    assert.deepEqual(JSON.parse(response.body), { error: 'Request body too large' });
+  } finally {
+    closeChild(proxy);
+    await rm(configDir, { recursive: true, force: true });
+  }
+});
+
 test('responses proxy uses server-side authorization and forwards cancel requests', async () => {
   const mock = await startMockApi();
   const port = await freePort();
@@ -470,6 +728,7 @@ test('client abort closes upstream streaming proxy requests', async () => {
     ZHIDA_CONFIG_SECRET: 'test-secret',
     ZHIDA_CONFIG_PATH: join(configDir, 'config.enc.json'),
   });
+  const getProxyOutput = collectChildOutput(proxy);
 
   try {
     await waitForUrl(`http://127.0.0.1:${port}/index.html`);
@@ -489,11 +748,66 @@ test('client abort closes upstream streaming proxy requests', async () => {
     assert.equal(first.done, false);
 
     controller.abort();
-    await delay(300);
+    await waitForCondition(() => mock.streamClosed, 'upstream stream close after client abort');
     assert.equal(mock.streamClosed, true);
+    const chunksAfterClose = mock.chunksWritten;
+    await delay(150);
+    assert.equal(mock.chunksWritten, chunksAfterClose);
+    assert.doesNotMatch(
+      getProxyOutput().stderr,
+      /ERR_STREAM_WRITE_AFTER_END|write after end|Unhandled|uncaught/i
+    );
   } finally {
     closeChild(proxy);
     await mock.close();
+    await rm(configDir, { recursive: true, force: true });
+  }
+});
+
+test('proxy timeout terminates an upstream reader that ignores abort and cancel settlement', async () => {
+  const port = await freePort();
+  const configDir = await mkdtemp(join(tmpdir(), 'zhida-config-test-'));
+  const preloadPath = join(configDir, 'abort-ignoring-fetch.mjs');
+  const probePath = join(configDir, 'fetch-probe.json');
+  await writeAbortIgnoringFetchPreload(preloadPath);
+
+  const proxy = startProxy({
+    ZHIDA_PORT: String(port),
+    ZHIDA_CONFIG_SECRET: 'test-secret',
+    ZHIDA_CONFIG_PATH: join(configDir, 'config.enc.json'),
+    ZHIDA_PROXY_TIMEOUT_MS: '120',
+    ZHIDA_FETCH_PROBE_PATH: probePath,
+    NODE_OPTIONS: `--import=${preloadPath}`,
+  });
+
+  try {
+    await waitForUrl(`http://127.0.0.1:${port}/index.html`);
+    const saved = await saveConfig(port, 'http://127.0.0.1:1');
+    assert.equal(saved.status, 200);
+
+    const response = await fetch(`http://127.0.0.1:${port}/api/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: [], stream: true }),
+    });
+    assert.equal(response.status, 200);
+    const reader = response.body.getReader();
+    const first = await reader.read();
+    assert.equal(first.done, false);
+
+    const secondRead = await Promise.race([
+      reader.read().then(
+        () => 'resolved',
+        () => 'rejected'
+      ),
+      delay(800).then(() => 'timed-out'),
+    ]);
+    assert.notEqual(secondRead, 'timed-out');
+
+    const probe = JSON.parse(await readFile(probePath, 'utf8'));
+    assert.equal(probe.cancelCalls, 1);
+  } finally {
+    closeChild(proxy);
     await rm(configDir, { recursive: true, force: true });
   }
 });

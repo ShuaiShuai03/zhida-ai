@@ -21,7 +21,7 @@ import {
   saveSelectedModel,
   saveSettings,
   clearAllData,
-  isStorageNearFull,
+  checkStorageSoftLimit,
   getStorageSummary,
   exportAllDataPayload,
   importAllData,
@@ -83,6 +83,10 @@ const $ = (sel) => document.querySelector(sel);
 // ---- Event Cleanup Manager ----
 /** @type {AbortController|null} */
 let eventController = null;
+let globalErrorHandlersRegistered = false;
+let lastGlobalErrorMessage = '';
+let lastGlobalErrorTime = 0;
+const GLOBAL_ERROR_TOAST_DEDUPE_MS = 3000;
 
 /**
  * Initialize event controller for cleanup.
@@ -90,6 +94,49 @@ let eventController = null;
 function initEventController() {
   eventController = new AbortController();
   return eventController.signal;
+}
+
+function getGlobalErrorMessage(errorLike) {
+  if (errorLike instanceof Error) return errorLike.message || errorLike.name;
+  if (typeof errorLike === 'string') return errorLike;
+  if (errorLike?.message) return String(errorLike.message);
+  return '未知错误';
+}
+
+function showUnexpectedErrorToastOnce(errorMessage) {
+  const now = Date.now();
+  if (
+    errorMessage === lastGlobalErrorMessage &&
+    now - lastGlobalErrorTime < GLOBAL_ERROR_TOAST_DEDUPE_MS
+  ) {
+    return;
+  }
+  lastGlobalErrorMessage = errorMessage;
+  lastGlobalErrorTime = now;
+  showToast('发生意外错误，请刷新后重试', 'error');
+}
+
+function logUnexpectedError(label, errorLike, meta = {}) {
+  const stack = errorLike instanceof Error ? errorLike.stack : undefined;
+  console.error(label, errorLike, stack, meta);
+}
+
+function registerGlobalErrorHandlers() {
+  if (globalErrorHandlersRegistered) return;
+  globalErrorHandlersRegistered = true;
+
+  window.onerror = (message, source, lineno, colno, error) => {
+    const originalError = error ?? message;
+    logUnexpectedError('Unhandled window error:', originalError, { source, lineno, colno });
+    showUnexpectedErrorToastOnce(getGlobalErrorMessage(originalError));
+    return false;
+  };
+
+  window.addEventListener('unhandledrejection', (event) => {
+    const reason = event.reason;
+    logUnexpectedError('Unhandled promise rejection:', reason);
+    showUnexpectedErrorToastOnce(getGlobalErrorMessage(reason));
+  });
 }
 
 /**
@@ -379,6 +426,7 @@ async function saveServerApiConfigFromForm({ requireKey = false } = {}) {
 async function init() {
   // Initialize event controller for cleanup
   initEventController();
+  registerGlobalErrorHandlers();
 
   // Initialize subsystems
   initTheme();
@@ -393,6 +441,7 @@ async function init() {
   loadSettings();
   loadSelectedModel();
   loadActiveConversationId();
+  checkStorageSoftLimit();
   await refreshConfigStatus();
 
   // Render initial UI
@@ -416,11 +465,6 @@ async function init() {
 
   // Initial send button state
   updateSendButton(canSend());
-
-  // Check storage
-  if (isStorageNearFull()) {
-    showToast('本地存储空间即将用完，建议清理旧对话', 'warning');
-  }
 
   // First-run: prompt to configure API if not set
   if (state.backendAvailable === false) {
@@ -1226,9 +1270,6 @@ function bindPasteHandler() {
 
 function bindStorageWarning() {
   const signal = eventController?.signal;
-  window.addEventListener('storage-full', () => {
-    showToast('本地存储空间已满，请清理旧对话', 'error');
-  }, { signal });
   window.addEventListener('storage-error', (e) => {
     const detail = e.detail;
     showToast(`存储${detail.operation === 'read' ? '读取' : '写入'}失败`, 'error');

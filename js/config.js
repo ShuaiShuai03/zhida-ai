@@ -139,6 +139,7 @@ export const STORAGE_KEYS = {
 // ---- Limits ----
 export const MAX_CONVERSATIONS = 100;
 export const MAX_STORAGE_MB = 4.5; // localStorage soft limit
+export const STORAGE_SOFT_WARNING_RATIO = 0.8;
 export const TITLE_MAX_LENGTH = 20;
 export const DEBOUNCE_DELAY = 300;
 export const SCROLL_THRESHOLD = 100; // px from bottom to auto-scroll

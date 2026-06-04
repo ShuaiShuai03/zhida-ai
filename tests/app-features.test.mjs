@@ -10,6 +10,100 @@ import {
   createBackupPayload,
   parseBackupPayload,
 } from '../js/backup-utils.js';
+import { MAX_STORAGE_MB, STORAGE_KEYS } from '../js/config.js';
+import { state } from '../js/state.js';
+import {
+  checkStorageSoftLimit,
+  saveConversations,
+} from '../js/storage.js';
+
+function installLocalStorageMock({ initial = {}, setItem } = {}) {
+  const store = new Map(Object.entries(initial));
+  const mock = {
+    get length() {
+      return store.size;
+    },
+    key(index) {
+      return Array.from(store.keys())[index] ?? null;
+    },
+    getItem(key) {
+      return store.has(String(key)) ? store.get(String(key)) : null;
+    },
+    setItem(key, value) {
+      if (setItem) return setItem(key, value);
+      store.set(String(key), String(value));
+      return undefined;
+    },
+    removeItem(key) {
+      store.delete(String(key));
+    },
+    clear() {
+      store.clear();
+    },
+  };
+  Object.defineProperty(globalThis, 'localStorage', {
+    value: mock,
+    configurable: true,
+  });
+  return mock;
+}
+
+function installToastDom() {
+  const toasts = [];
+  const container = {
+    appendChild(node) {
+      toasts.push(node);
+    },
+  };
+
+  Object.defineProperty(globalThis, 'document', {
+    value: {
+      querySelector(selector) {
+        return selector === '#toast-container' ? container : null;
+      },
+      createElement() {
+        const node = {
+          attributes: {},
+          className: '',
+          innerHTML: '',
+          classList: {
+            add(className) {
+              node.className = `${node.className} ${className}`.trim();
+            },
+          },
+          setAttribute(name, value) {
+            node.attributes[name] = value;
+          },
+          addEventListener() {},
+          remove() {},
+        };
+        return node;
+      },
+    },
+    configurable: true,
+  });
+
+  return toasts;
+}
+
+function installImmediateTimeout() {
+  const originalSetTimeout = globalThis.setTimeout;
+  globalThis.setTimeout = (callback) => {
+    callback();
+    return 0;
+  };
+  return () => {
+    globalThis.setTimeout = originalSetTimeout;
+  };
+}
+
+function restoreGlobal(name, originalDescriptor) {
+  if (originalDescriptor) {
+    Object.defineProperty(globalThis, name, originalDescriptor);
+  } else {
+    delete globalThis[name];
+  }
+}
 
 test('long text md attachment uses BJT filename and bounded excerpt', () => {
   const content = 'a'.repeat(2500) + '\n' + 'b'.repeat(2500);
@@ -122,4 +216,79 @@ test('backup preserves non-sensitive search/reasoning settings and long text met
   assert.equal(parsed.settings.reasoningEffort, 'high');
   assert.equal(parsed.settings.apiKey, undefined);
   assert.equal(parsed.longTextAttachments[0].content, '# Full text');
+});
+
+test('conversation save catches localStorage quota errors and keeps memory state', () => {
+  const originalLocalStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  const originalDocument = Object.getOwnPropertyDescriptor(globalThis, 'document');
+  const originalWarn = console.warn;
+  const restoreTimeout = installImmediateTimeout();
+  const warnings = [];
+
+  installToastDom();
+  installLocalStorageMock({
+    setItem() {
+      const err = new Error('quota full');
+      err.name = 'QuotaExceededError';
+      throw err;
+    },
+  });
+  console.warn = (...args) => warnings.push(args);
+  state.clearAllConversations();
+
+  try {
+    const conversation = {
+      id: 'quota-conv',
+      title: 'Quota test',
+      modelId: 'qwen-max-latest',
+      systemPrompt: 'system',
+      messages: [{ id: 'msg-1', role: 'user', content: 'hello', timestamp: 1 }],
+      createdAt: 1,
+      updatedAt: 2,
+      pinned: false,
+      tags: [],
+    };
+
+    assert.doesNotThrow(() => {
+      assert.equal(saveConversations([conversation]), false);
+    });
+    assert.deepEqual(state.conversations, [conversation]);
+    assert.equal(
+      warnings.some((args) => JSON.stringify(args).includes(STORAGE_KEYS.CONVERSATIONS)),
+      true
+    );
+  } finally {
+    state.clearAllConversations();
+    console.warn = originalWarn;
+    restoreTimeout();
+    restoreGlobal('localStorage', originalLocalStorage);
+    restoreGlobal('document', originalDocument);
+  }
+});
+
+test('storage soft warning triggers once above 80 percent of the limit', async () => {
+  const storageModule = await import(`../js/storage.js?soft-warning-${Date.now()}`);
+  const originalLocalStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  const originalDocument = Object.getOwnPropertyDescriptor(globalThis, 'document');
+  const restoreTimeout = installImmediateTimeout();
+  const toasts = installToastDom();
+  const warningBytes = Math.ceil(MAX_STORAGE_MB * 1024 * 1024 * 0.81);
+
+  installLocalStorageMock({
+    initial: {
+      [STORAGE_KEYS.CONVERSATIONS]: 'x'.repeat(warningBytes),
+    },
+  });
+
+  try {
+    assert.equal(storageModule.checkStorageSoftLimit(), true);
+    assert.equal(storageModule.checkStorageSoftLimit(), false);
+    assert.equal(toasts.length, 1);
+    assert.match(toasts[0].innerHTML, /存储空间即将用满，建议导出备份/);
+    assert.match(toasts[0].className, /toast--warning/);
+  } finally {
+    restoreTimeout();
+    restoreGlobal('localStorage', originalLocalStorage);
+    restoreGlobal('document', originalDocument);
+  }
 });

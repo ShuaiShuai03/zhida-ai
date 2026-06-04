@@ -6,6 +6,7 @@ import {
   STORAGE_KEYS,
   MAX_CONVERSATIONS,
   MAX_STORAGE_MB,
+  STORAGE_SOFT_WARNING_RATIO,
   DEFAULT_REASONING_EFFORT,
   REASONING_EFFORTS,
 } from './config.js';
@@ -14,7 +15,10 @@ import { createBackupPayload, mergeBackupIntoState, parseBackupPayload } from '.
 import { exportLongTextAttachments, importLongTextAttachments } from './long-text.js';
 import { normalizeCustomTemplates } from './prompt-templates.js';
 import { state } from './state.js';
+import { showToast } from './ui.js';
 import { byteSize } from './utils.js';
+
+let storageSoftWarningShown = false;
 
 /**
  * Safely read from localStorage.
@@ -28,9 +32,20 @@ function getItem(key) {
   } catch (e) {
     console.warn('localStorage read error:', e);
     // Emit event for UI notification
-    window.dispatchEvent(new CustomEvent('storage-error', { detail: { operation: 'read', error: e } }));
+    if (typeof window !== 'undefined' && typeof CustomEvent !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('storage-error', { detail: { operation: 'read', error: e } }));
+    }
     return null;
   }
+}
+
+function isQuotaExceededError(error) {
+  return error?.name === 'QuotaExceededError' || error?.code === 22;
+}
+
+function showStorageToast(message, type) {
+  if (typeof document === 'undefined') return;
+  showToast(message, type);
 }
 
 /**
@@ -42,19 +57,37 @@ function getItem(key) {
 function setItem(key, value) {
   try {
     localStorage.setItem(key, JSON.stringify(value));
+    checkStorageSoftLimit();
     return true;
   } catch (e) {
-    if (e.name === 'QuotaExceededError' || e.code === 22) {
-      console.warn('localStorage quota exceeded');
-      // Emit a custom event so ui.js can show a toast
-      window.dispatchEvent(new CustomEvent('storage-full'));
+    if (isQuotaExceededError(e)) {
+      const usageMB = estimateStorageUsage();
+      console.warn('localStorage quota exceeded:', {
+        key,
+        usageMB: usageMB.toFixed(2),
+        limitMB: MAX_STORAGE_MB,
+        error: e,
+      });
+      showStorageToast('存储空间已满，请导出数据后清理旧会话', 'error');
       return false;
     }
     console.warn('localStorage write error:', e);
     // Emit event for UI notification
-    window.dispatchEvent(new CustomEvent('storage-error', { detail: { operation: 'write', error: e } }));
+    if (typeof window !== 'undefined' && typeof CustomEvent !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('storage-error', { detail: { operation: 'write', error: e } }));
+    }
     return false;
   }
+}
+
+export function estimateStorageUsage() {
+  if (typeof localStorage === 'undefined') return 0;
+  let total = 0;
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    total += byteSize(key) + byteSize(localStorage.getItem(key) ?? '');
+  }
+  return total / (1024 * 1024);
 }
 
 /**
@@ -62,12 +95,19 @@ function setItem(key, value) {
  * @returns {number}
  */
 export function getStorageUsageMB() {
-  let total = 0;
-  for (let i = 0; i < localStorage.length; i++) {
-    const key = localStorage.key(i);
-    total += byteSize(key) + byteSize(localStorage.getItem(key) ?? '');
-  }
-  return total / (1024 * 1024);
+  return estimateStorageUsage();
+}
+
+/**
+ * Show the soft storage warning once per browser session.
+ * @returns {boolean} Whether the warning was triggered.
+ */
+export function checkStorageSoftLimit() {
+  if (storageSoftWarningShown) return false;
+  if (estimateStorageUsage() <= MAX_STORAGE_MB * STORAGE_SOFT_WARNING_RATIO) return false;
+  storageSoftWarningShown = true;
+  showStorageToast('存储空间即将用满，建议导出备份', 'warning');
+  return true;
 }
 
 /**
@@ -105,11 +145,8 @@ export function saveConversations(conversations = state.conversations) {
   if (convs.length > MAX_CONVERSATIONS) {
     convs = convs.slice(0, MAX_CONVERSATIONS);
   }
-  if (!setItem(STORAGE_KEYS.CONVERSATIONS, convs)) {
-    return false;
-  }
   state.conversations = convs;
-  return true;
+  return setItem(STORAGE_KEYS.CONVERSATIONS, convs);
 }
 
 /**

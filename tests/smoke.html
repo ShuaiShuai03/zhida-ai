@@ -310,6 +310,56 @@
       return null;
     }
 
+    function createChatSseChunk(text) {
+      return `data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`;
+    }
+
+    function createStreamingMarkdownResponse(win) {
+      const encoder = new win.TextEncoder();
+      const stream = new win.ReadableStream({
+        start(controller) {
+          controller.enqueue(encoder.encode(createChatSseChunk('## Streaming Markdown\n```js\nconst answer = 42;')));
+          win.setTimeout(() => {
+            controller.enqueue(encoder.encode(createChatSseChunk('\nconsole.log(answer);\n```\n\nInline math: $x + y$')));
+            controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+            controller.close();
+          }, 300);
+        },
+      });
+
+      return new win.Response(stream, {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream; charset=utf-8' },
+      });
+    }
+
+    function installStreamingMarkdownFetchMock(win) {
+      const originalFetch = win.fetch.bind(win);
+      let intercepted = false;
+
+      win.fetch = (resource, options = {}) => {
+        const rawUrl = typeof resource === 'string' ? resource : resource?.url;
+        const url = new URL(rawUrl, win.location.href);
+        const body = String(options?.body || '');
+
+        if (url.pathname === '/api/chat/completions' && body.includes('streaming markdown smoke')) {
+          intercepted = true;
+          return Promise.resolve(createStreamingMarkdownResponse(win));
+        }
+
+        return originalFetch(resource, options);
+      };
+
+      return {
+        restore() {
+          win.fetch = originalFetch;
+        },
+        wasIntercepted() {
+          return intercepted;
+        },
+      };
+    }
+
     async function main() {
       localStorage.clear();
 
@@ -665,6 +715,56 @@
       await waitFor(
         () => Array.from(doc.querySelectorAll('.message--ai .message__content')).some((node) => node.textContent.includes('Smoke test reply')),
         'basic AI reply'
+      );
+
+      const markdownStreamMock = installStreamingMarkdownFetchMock(win);
+      try {
+        clickBySelector('#new-chat-btn', doc, '开启流式 Markdown 验证对话');
+        inputBySelector('#chat-input', 'streaming markdown smoke', doc, '输入流式 Markdown 验证消息');
+        clickBySelector('#send-btn', doc, '发送流式 Markdown 验证消息');
+
+        const streamingMarkdownNode = await waitFor(
+          () => {
+            const node = doc.querySelector('.streaming-content');
+            return node?.textContent.includes('const answer = 42') ? node : null;
+          },
+          'streaming markdown code text visible'
+        );
+        if (!markdownStreamMock.wasIntercepted()) {
+          fail('streaming markdown smoke request should be intercepted by the browser mock');
+        }
+        if (!streamingMarkdownNode.querySelector('pre code')) {
+          fail('streaming markdown should keep code block structure while streaming');
+        }
+        if (streamingMarkdownNode.querySelector('.hljs-keyword, .hljs-built_in, .hljs-number, .katex')) {
+          fail('streaming markdown should not run highlight.js or KaTeX before completion');
+        }
+
+        const finalMarkdownNode = await waitFor(
+          () => Array.from(doc.querySelectorAll('.message--ai .message__content')).find((node) => (
+            !node.classList.contains('streaming-content')
+            && node.textContent.includes('const answer = 42')
+            && node.querySelector('pre code.hljs')
+          )),
+          'final streaming markdown render'
+        );
+        if (!finalMarkdownNode.querySelector('.hljs-keyword, .hljs-built_in, .hljs-number')) {
+          fail('final markdown code block should include highlight.js markup');
+        }
+        if (!finalMarkdownNode.querySelector('.katex')) {
+          fail('final markdown math should be rendered by KaTeX');
+        }
+      } finally {
+        markdownStreamMock.restore();
+      }
+      const helloConversationAfterMarkdown = await waitFor(
+        () => findByText('.conversation-item', 'hello smoke', doc),
+        'hello smoke conversation available after markdown smoke'
+      );
+      click(helloConversationAfterMarkdown);
+      await waitFor(
+        () => findByText('.conversation-item.active', 'hello smoke', doc),
+        'hello smoke conversation active after markdown smoke'
       );
 
       clickBySelector('#input-template-btn', doc, '打开模板弹窗');

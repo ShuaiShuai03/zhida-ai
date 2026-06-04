@@ -686,6 +686,7 @@ function commitStreamingError(options) {
     requestComposerStateSync();
   }
   clearCurrentStreamRequest(requestId);
+  streaming.finalize();
 
   const errorMsg = {
     id: generateId(),

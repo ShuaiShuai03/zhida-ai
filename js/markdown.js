@@ -8,6 +8,19 @@ import { sanitizeHTML, escapeHTML } from './utils.js';
 /** @type {boolean} */
 let initialized = false;
 
+const DEFAULT_RENDER_OPTIONS = Object.freeze({
+  highlightCode: true,
+  renderMath: true,
+});
+let activeRenderOptions = DEFAULT_RENDER_OPTIONS;
+
+function getRenderOptions(options = {}) {
+  return {
+    ...DEFAULT_RENDER_OPTIONS,
+    ...options,
+  };
+}
+
 /**
  * Configure marked.js with custom renderer.
  */
@@ -33,11 +46,11 @@ export function initMarkdown() {
       const escapedCode = escapeHTML(text);
       let highlighted = escapedCode;
 
-      if (typeof hljs !== 'undefined' && language && hljs.getLanguage(language)) {
+      if (activeRenderOptions.highlightCode && typeof hljs !== 'undefined' && language && hljs.getLanguage(language)) {
         try {
           highlighted = hljs.highlight(text, { language, ignoreIllegals: true }).value;
         } catch { /* fall back to escaped */ }
-      } else if (typeof hljs !== 'undefined') {
+      } else if (activeRenderOptions.highlightCode && typeof hljs !== 'undefined') {
         try {
           highlighted = hljs.highlightAuto(text).value;
         } catch { /* fall back to escaped */ }
@@ -73,23 +86,23 @@ export function initMarkdown() {
  * Pre-process LaTeX expressions, protecting them from marked.js processing.
  * Replaces $...$ and $$...$$ with placeholders, then restores them after parsing.
  * @param {string} text
- * @returns {{ text: string, blocks: Map<string, { content: string, display: boolean }> }}
+ * @returns {{ text: string, blocks: Map<string, { content: string, display: boolean, source: string }> }}
  */
 function extractMath(text) {
   const blocks = new Map();
   let counter = 0;
 
   // Display math: $$...$$
-  text = text.replace(/\$\$([\s\S]+?)\$\$/g, (_match, content) => {
+  text = text.replace(/\$\$([\s\S]+?)\$\$/g, (match, content) => {
     const key = `%%MATH_BLOCK_${counter++}%%`;
-    blocks.set(key, { content: content.trim(), display: true });
+    blocks.set(key, { content: content.trim(), display: true, source: match });
     return key;
   });
 
   // Inline math: $...$  (avoid matching things like $10 or 10$)
-  text = text.replace(/(?<!\$)\$(?!\$)(.+?)(?<!\$)\$(?!\$)/g, (_match, content) => {
+  text = text.replace(/(?<!\$)\$(?!\$)(.+?)(?<!\$)\$(?!\$)/g, (match, content) => {
     const key = `%%MATH_INLINE_${counter++}%%`;
-    blocks.set(key, { content: content.trim(), display: false });
+    blocks.set(key, { content: content.trim(), display: false, source: match });
     return key;
   });
 
@@ -99,13 +112,18 @@ function extractMath(text) {
 /**
  * Restore LaTeX placeholders with rendered KaTeX HTML.
  * @param {string} html
- * @param {Map<string, { content: string, display: boolean }>} blocks
+ * @param {Map<string, { content: string, display: boolean, source: string }>} blocks
+ * @param {{ renderMath?: boolean }} [options]
  * @returns {string}
  */
-function restoreMath(html, blocks) {
-  for (const [key, { content, display }] of blocks) {
+function restoreMath(html, blocks, options = {}) {
+  const renderMath = options.renderMath !== false;
+
+  for (const [key, { content, display, source }] of blocks) {
     let rendered;
-    if (typeof katex !== 'undefined') {
+    if (!renderMath) {
+      rendered = escapeHTML(source);
+    } else if (typeof katex !== 'undefined') {
       try {
         rendered = katex.renderToString(content, {
           displayMode: display,
@@ -135,10 +153,12 @@ function restoreMath(html, blocks) {
 /**
  * Render a Markdown string to sanitized HTML.
  * @param {string} text - Raw markdown
+ * @param {{ highlightCode?: boolean, renderMath?: boolean }} [options]
  * @returns {string} Safe HTML
  */
-export function renderMarkdown(text) {
+function renderMarkdownInternal(text, options = {}) {
   if (!text) return '';
+  const renderOptions = getRenderOptions(options);
 
   // Extract math first
   const { text: preprocessed, blocks } = extractMath(text);
@@ -146,14 +166,20 @@ export function renderMarkdown(text) {
   // Parse markdown
   let html;
   if (typeof marked !== 'undefined') {
-    html = marked.parse(preprocessed);
+    const previousOptions = activeRenderOptions;
+    activeRenderOptions = renderOptions;
+    try {
+      html = marked.parse(preprocessed);
+    } finally {
+      activeRenderOptions = previousOptions;
+    }
   } else {
     // Fallback: basic newline-to-br
     html = escapeHTML(preprocessed).replace(/\n/g, '<br>');
   }
 
   // Restore math
-  html = restoreMath(html, blocks);
+  html = restoreMath(html, blocks, renderOptions);
 
   // Sanitize
   html = sanitizeHTML(html);
@@ -161,9 +187,13 @@ export function renderMarkdown(text) {
   return html;
 }
 
+export function renderMarkdown(text) {
+  return renderMarkdownInternal(text);
+}
+
 /**
  * Render markdown incrementally during streaming.
- * Same as renderMarkdown but tolerant of incomplete blocks.
+ * Uses the same parser/sanitizer, but skips expensive highlighter/KaTeX work.
  * @param {string} text
  * @returns {string}
  */
@@ -177,5 +207,8 @@ export function renderStreamingMarkdown(text) {
     processed += '\n```';
   }
 
-  return renderMarkdown(processed);
+  return renderMarkdownInternal(processed, {
+    highlightCode: false,
+    renderMath: false,
+  });
 }

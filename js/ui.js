@@ -538,29 +538,65 @@ export function createStreamingMessage() {
   const thinkingBlock = wrapper.querySelector('#streaming-thinking');
   let hasContent = false;
   let hasThinking = false;
+  let pendingFrameId = null;
+  let pendingContentText = null;
+  let pendingThinkingText = null;
+
+  const renderThinking = (text) => {
+    if (!hasThinking) {
+      hasThinking = true;
+      thinkingBlock.classList.remove('hidden');
+    }
+    thinkingEl.innerHTML = renderStreamingMarkdown(text);
+  };
+
+  const renderContent = (text) => {
+    if (!hasContent) {
+      hasContent = true;
+      const loader = contentEl.querySelector('.loading-indicator');
+      if (loader) loader.remove();
+    }
+    contentEl.innerHTML = renderStreamingMarkdown(text);
+    contentEl.classList.add('streaming-cursor');
+  };
+
+  const flushPendingRender = () => {
+    if (pendingThinkingText !== null) {
+      renderThinking(pendingThinkingText);
+      pendingThinkingText = null;
+    }
+    if (pendingContentText !== null) {
+      renderContent(pendingContentText);
+      pendingContentText = null;
+    }
+    autoScrollIfNeeded();
+  };
+
+  const cancelPendingFrame = () => {
+    if (pendingFrameId === null) return;
+    cancelAnimationFrame(pendingFrameId);
+    pendingFrameId = null;
+  };
+
+  const scheduleRender = () => {
+    if (pendingFrameId !== null) return;
+    pendingFrameId = requestAnimationFrame(() => {
+      pendingFrameId = null;
+      flushPendingRender();
+    });
+  };
 
   return {
     element: wrapper,
 
     updateThinking(text) {
-      if (!hasThinking) {
-        hasThinking = true;
-        thinkingBlock.classList.remove('hidden');
-      }
-      thinkingEl.innerHTML = renderStreamingMarkdown(text);
-      autoScrollIfNeeded();
+      pendingThinkingText = text;
+      scheduleRender();
     },
 
     updateContent(text) {
-      if (!hasContent) {
-        hasContent = true;
-        // Remove loading dots
-        const loader = contentEl.querySelector('.loading-indicator');
-        if (loader) loader.remove();
-      }
-      contentEl.innerHTML = renderStreamingMarkdown(text);
-      contentEl.classList.add('streaming-cursor');
-      autoScrollIfNeeded();
+      pendingContentText = text;
+      scheduleRender();
     },
 
     updateStatus(text) {
@@ -572,6 +608,8 @@ export function createStreamingMessage() {
     },
 
     finalize() {
+      cancelPendingFrame();
+      flushPendingRender();
       wrapper.setAttribute('aria-busy', 'false');
       contentEl.classList.remove('streaming-cursor');
       statusEl?.classList.add('hidden');

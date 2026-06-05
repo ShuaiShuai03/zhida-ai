@@ -176,7 +176,11 @@ function getEncryptionKey() {
 }
 
 function normalizeApiBaseUrl(value) {
-  const raw = String(value || '').trim();
+  const trimmed = String(value || '').trim();
+  // Accept bare hostnames (e.g. "api.openai.com/v1") by defaulting to https.
+  // Anything that already carries a scheme is left untouched so we can reject
+  // unsupported protocols below rather than silently rewriting them.
+  const raw = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
   let parsed;
   try {
     parsed = new URL(raw);
@@ -552,7 +556,8 @@ async function handleProxy(req, res, upstreamPath) {
   const durationMs = () => Date.now() - startedAt;
   const proxyLogFields = (fields = {}) => ({
     method: req.method,
-    path: upstreamPath,
+    path: getRequestPath(req),
+    upstream_path: upstreamPath,
     ...fields,
   });
   const logProxyDone = (status) => {
@@ -661,7 +666,9 @@ async function handleProxy(req, res, upstreamPath) {
       } catch (err) {
         if (abortReason === 'client_closed') return;
         completed = true;
-        if (err?.message !== REQUEST_BODY_TOO_LARGE) {
+        if (err?.message === REQUEST_BODY_TOO_LARGE) {
+          logProxyAbort('request_body_too_large');
+        } else {
           logProxyError(err);
         }
         if (handleRequestBodyReadError(req, res, err, '读取请求体失败')) {

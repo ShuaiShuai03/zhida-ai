@@ -4,6 +4,7 @@
 
 import { DEFAULT_REASONING_EFFORT, REQUEST_TIMEOUT } from './config.js';
 import { state } from './state.js';
+import { saveCachedModels } from './storage.js';
 
 export const BACKEND_UNAVAILABLE_MESSAGE = '当前是纯静态服务器，缺少 Node 后端代理，不能保存 API key、获取模型或聊天。请用 ZHIDA_CONFIG_SECRET="..." node server/server.js 或 bash scripts/start.sh 启动。';
 
@@ -75,10 +76,13 @@ export function getRequestRouteDecision({ model, webSearchEnabled, reasoningEffo
     };
   }
 
+  // When the model explicitly lacks Responses support, gracefully downgrade
+  // to Chat Completions instead of blocking the request entirely.
   if (webSearchEnabled && !model.supportsWebSearch) {
     return {
-      route: 'blocked',
-      reason: model.capabilityReason || '当前模型不支持 Responses API，无法使用网络搜索。请切换支持网络搜索的模型后重试。',
+      route: 'chat',
+      reason: 'chat_completions',
+      downgraded: 'web_search_unavailable',
       requestOptions: {},
     };
   }
@@ -116,9 +120,57 @@ export async function streamModelResponse(messages, callbacks) {
   }
 
   if (decision.route === 'responses') {
-    return streamResponsesAPI(messages, callbacks, decision.requestOptions);
+    // Try Responses API; auto-fallback to Chat Completions when the
+    // upstream doesn't support the Responses route.
+    let responsesError = null;
+
+    await streamResponsesAPI(messages, {
+      ...callbacks,
+      onError(err) {
+        if (isResponsesUnsupportedClientError(err)) {
+          responsesError = err;
+        } else {
+          callbacks.onError(err);
+        }
+      },
+    }, decision.requestOptions);
+
+    if (!responsesError) return;
+
+    // Mark this model as not supporting Responses so future requests skip
+    // the probe and go directly to Chat Completions.
+    markModelResponsesUnsupported(state.selectedModelId);
+
+    // Retry via Chat Completions — the user gets a response without needing
+    // to manually change settings.
+    return streamChatCompletion(messages, callbacks);
   }
+
   return streamChatCompletion(messages, callbacks);
+}
+
+/**
+ * Detect whether a ChatError represents an upstream "responses unsupported" rejection.
+ * The server normalizes such errors to a known message, or the upstream may return
+ * error text matching common patterns.
+ */
+function isResponsesUnsupportedClientError(err) {
+  if (!(err instanceof ChatError)) return false;
+  const msg = err.message || '';
+  return /不支持 Responses API|does not support this API.*responses|call_methods.*must.*include.*responses|unsupported.*responses|responses.*unsupported/i.test(msg);
+}
+
+/**
+ * Persist the fact that a model doesn't support the Responses route.
+ */
+function markModelResponsesUnsupported(modelId) {
+  const idx = state.models.findIndex((m) => m.id === modelId);
+  if (idx === -1) return;
+  const updated = { ...state.models[idx], supportsResponses: false, supportsWebSearch: false, supportsReasoningEffort: false };
+  const next = [...state.models];
+  next[idx] = updated;
+  state.models = next;
+  saveCachedModels();
 }
 
 /**
@@ -757,18 +809,18 @@ function deriveModelCapabilities(apiModel, options = {}) {
     const normalized = method.toLowerCase().replace(/[_-]/g, '.');
     return normalized === 'responses' || normalized === 'response' || normalized.endsWith('.responses');
   });
-  const officialOpenAIModel = isOfficialOpenAIBaseUrl(options.apiBaseUrl) && isKnownOpenAIResponsesModel(apiModel.id);
+
+  // Optimistic default: when the provider doesn't declare call_methods,
+  // assume Responses is supported.  If it actually isn't, the auto-retry
+  // logic in streamModelResponse will correct the assumption at runtime and
+  // cache the result.  When call_methods IS declared, respect it exactly.
   const supportsResponses = hasExplicitCallMethods
     ? supportsResponsesFromCallMethods
-    : officialOpenAIModel;
+    : true;
 
   const supportsWebSearch = supportsResponses;
-  const supportsReasoningEffort = supportsResponses && hasExplicitReasoningSupport(apiModel, officialOpenAIModel);
-  const capabilityReason = supportsWebSearch
-    ? ''
-    : hasExplicitCallMethods
-    ? '当前模型不支持 Responses API，无法使用网络搜索。请切换支持网络搜索的模型后重试。'
-    : '当前 API 服务未声明该模型支持 Responses API，无法使用网络搜索。请切换支持网络搜索的模型后重试。';
+  const supportsReasoningEffort = supportsResponses && hasExplicitReasoningSupport(apiModel);
+  const capabilityReason = '';
 
   return {
     callMethods,
@@ -786,24 +838,7 @@ function normalizeStringArray(value) {
     .filter(Boolean);
 }
 
-function isOfficialOpenAIBaseUrl(apiBaseUrl = '') {
-  if (!apiBaseUrl) return false;
-  try {
-    const hostname = new URL(apiBaseUrl).hostname.toLowerCase();
-    return hostname === 'api.openai.com' || hostname.endsWith('.api.openai.com');
-  } catch {
-    return false;
-  }
-}
-
-function isKnownOpenAIResponsesModel(id = '') {
-  const lower = String(id).toLowerCase();
-  return /^(gpt-5|gpt-4\.1|o[1-9]|o\d-|o\d\b)/.test(lower);
-}
-
-function hasExplicitReasoningSupport(apiModel, officialOpenAIModel) {
-  if (officialOpenAIModel) return /^(gpt-5|o[1-9]|o\d-|o\d\b)/i.test(apiModel.id);
-
+function hasExplicitReasoningSupport(apiModel) {
   const supportedParameters = normalizeStringArray(apiModel.supported_parameters);
   if (supportedParameters.some((param) => /^(reasoning|reasoning\.effort|reasoning_effort)$/i.test(param))) {
     return true;
@@ -811,7 +846,11 @@ function hasExplicitReasoningSupport(apiModel, officialOpenAIModel) {
 
   if (apiModel.supports_reasoning_effort === true) return true;
   if (apiModel.capabilities?.reasoning === true || apiModel.capabilities?.reasoning_effort === true) return true;
-  return false;
+
+  // Heuristic: models with "thinking", "reasoner", "o1-", "o3-" in the name
+  // typically support reasoning effort.
+  const lower = String(apiModel.id || '').toLowerCase();
+  return /thinking|reasoner|^o[1-9](-|$)|deep-think/.test(lower);
 }
 
 /** Known tokens that should be uppercased. */

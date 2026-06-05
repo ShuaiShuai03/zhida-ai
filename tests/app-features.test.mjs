@@ -37,7 +37,7 @@ test('long text reference mode omits full content and full mode includes it', ()
   assert.match(fullBlock, new RegExp(`alpha ${'x'.repeat(2000)}`));
 });
 
-test('model capabilities follow call_methods and conservative fallback rules', () => {
+test('model capabilities follow call_methods and optimistic fallback rules', () => {
   const chatOnly = normalizeModel({
     id: 'claude-haiku-4-5-20251001',
     owned_by: 'compat',
@@ -57,29 +57,25 @@ test('model capabilities follow call_methods and conservative fallback rules', (
   assert.equal(responsesModel.supportsReasoningEffort, true);
 
   const undeclaredThirdParty = normalizeModel({ id: 'qwen-compatible', owned_by: 'mock' });
-  assert.equal(undeclaredThirdParty.supportsResponses, false);
-
-  const officialOpenAI = normalizeModel(
-    { id: 'gpt-5.5', owned_by: 'openai' },
-    { apiBaseUrl: 'https://api.openai.com' }
-  );
-  assert.equal(officialOpenAI.supportsResponses, true);
-  assert.equal(officialOpenAI.supportsWebSearch, true);
-  assert.equal(officialOpenAI.supportsReasoningEffort, true);
+  assert.equal(undeclaredThirdParty.supportsResponses, true);
+  assert.equal(undeclaredThirdParty.supportsWebSearch, true);
 });
 
-test('request routing is capability driven and blocks unsupported web search', () => {
+test('request routing is capability driven and downgrades unsupported web search', () => {
   assert.equal(shouldUseResponsesRoute({
     model: { type: 'standard', supportsWebSearch: false, supportsReasoningEffort: false },
     webSearchEnabled: false,
     reasoningEffort: 'medium',
   }), false);
 
-  assert.deepEqual(getRequestRouteDecision({
+  const downgradedDecision = getRequestRouteDecision({
     model: { type: 'standard', supportsWebSearch: false, supportsReasoningEffort: false },
     webSearchEnabled: true,
     reasoningEffort: 'medium',
-  }).route, 'blocked');
+  });
+  assert.equal(downgradedDecision.route, 'chat');
+  assert.equal(downgradedDecision.downgraded, 'web_search_unavailable');
+  assert.deepEqual(downgradedDecision.requestOptions, {});
 
   const responsesDecision = getRequestRouteDecision({
     model: { type: 'standard', supportsWebSearch: true, supportsReasoningEffort: false },

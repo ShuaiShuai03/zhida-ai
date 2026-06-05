@@ -155,6 +155,20 @@ function updateBackendStatusUI() {
   updateWelcomeBackendStatus();
 }
 
+function showApiConfigSaveError(err) {
+  const message = err?.message || 'API 配置保存失败';
+  const isMissingSecret = message.includes('ZHIDA_CONFIG_SECRET');
+  const displayMessage = isMissingSecret
+    ? `保存失败：${message}。请在启动 Node 后端时设置 ZHIDA_CONFIG_SECRET。`
+    : message;
+  const statusNode = $('#backend-status');
+  if (isMissingSecret && statusNode) {
+    statusNode.textContent = displayMessage;
+    statusNode.hidden = false;
+  }
+  showToast(displayMessage, 'error', isMissingSecret ? 6000 : 3000);
+}
+
 function openSettingsModal() {
   const apiBaseUrlInput = $('#settings-api-base-url');
   const apiKeyInput = $('#settings-api-key');
@@ -281,6 +295,13 @@ async function refreshModels(options = {}) {
     if (models.length > 0) {
       state.models = models;
       saveCachedModels();
+
+      // With no hard-coded list, the selection may be empty or point at a
+      // model from a previous provider. Fall back to the first available model.
+      if (!models.some((m) => m.id === state.selectedModelId)) {
+        state.selectedModelId = models[0].id;
+        saveSelectedModel();
+      }
 
       renderModelDropdown();
       updateModelTrigger();
@@ -506,7 +527,6 @@ function bindInputEvents() {
   if (webSearchToggle) {
     webSearchToggle.addEventListener('change', () => {
       if (webSearchToggle.disabled) {
-        showToast(state.selectedModel.capabilityReason || '当前模型不支持网络搜索', 'warning', 2000);
         updateComposerCapabilityControls();
         return;
       }
@@ -912,7 +932,7 @@ function bindModalEvents() {
       try {
         await saveServerApiConfigFromForm();
       } catch (err) {
-        showToast(err.message || 'API 配置保存失败', 'error');
+        showApiConfigSaveError(err);
         settingsSaveBtn.disabled = false;
         settingsSaveBtn.textContent = originalText;
         return;

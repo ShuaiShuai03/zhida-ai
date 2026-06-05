@@ -1,5 +1,7 @@
 /**
- * Application configuration — API settings, model definitions, and constants.
+ * Application configuration — API settings and constants.
+ * Model definitions are fetched at runtime from the configured provider's
+ * /v1/models endpoint; there is no hard-coded model list.
  * To customise, edit the values below.
  */
 
@@ -38,58 +40,6 @@ export const FILE_INPUT_ACCEPT = [
 // ---- Long Text Attachment Support ----
 export const LONG_TEXT_AUTO_MD_THRESHOLD = 4000;
 export const LONG_TEXT_EXCERPT_MAX = 1200;
-
-// ---- Model Definitions ----
-export const MODELS = [
-  {
-    id: 'qwen-max-latest',
-    name: 'Qwen Max',
-    badge: '🌟 旗舰',
-    badgeClass: 'badge--premium',
-    type: 'standard',
-    description: '通义千问旗舰模型，综合能力最强',
-  },
-  {
-    id: 'qwen-max-latest-thinking',
-    name: 'Qwen Max Thinking',
-    badge: '🧠 深度思考',
-    badgeClass: 'badge--thinking',
-    type: 'thinking',
-    description: '通义千问旗舰思考模型，深度推理与复杂分析',
-  },
-  {
-    id: 'qwen3-max-2026-01-23',
-    name: 'Qwen3 Max',
-    badge: '🌟 高级',
-    badgeClass: 'badge--premium',
-    type: 'standard',
-    description: '通义千问3代旗舰模型，全面升级的综合能力',
-  },
-  {
-    id: 'qwen3-max-2026-01-23-thinking',
-    name: 'Qwen3 Max Thinking',
-    badge: '🧠 深度思考',
-    badgeClass: 'badge--thinking',
-    type: 'thinking',
-    description: '通义千问3代旗舰思考模型，增强推理能力',
-  },
-  {
-    id: 'qwen3-vl-plus-thinking',
-    name: 'Qwen3 VL Plus Thinking',
-    badge: '🧠 多模态推理',
-    badgeClass: 'badge--thinking',
-    type: 'thinking',
-    description: '通义千问3代视觉语言思考模型，支持图文理解与推理',
-  },
-  {
-    id: 'qwen3.5-plus-thinking',
-    name: 'Qwen3.5 Plus Thinking',
-    badge: '🧠 深度思考',
-    badgeClass: 'badge--thinking',
-    type: 'thinking',
-    description: '通义千问3.5代增强思考模型，最新推理能力',
-  },
-];
 
 // ---- Welcome Prompt Cards ----
 export const WELCOME_PROMPTS = [

@@ -3,7 +3,6 @@
  */
 
 import {
-  MODELS,
   DEFAULT_TEMPERATURE,
   DEFAULT_MAX_TOKENS,
   DEFAULT_SYSTEM_PROMPT,
@@ -42,9 +41,9 @@ class AppState {
   /** @type {string|null} */
   #activeConversationId = null;
   /** @type {string} */
-  #selectedModelId = MODELS[0].id;
+  #selectedModelId = '';
   /** @type {Array} */
-  #models = MODELS;
+  #models = [];
   /** @type {boolean} */
   #isStreaming = false;
   /** @type {AbortController|null} */

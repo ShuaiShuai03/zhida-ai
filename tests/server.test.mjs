@@ -413,6 +413,27 @@ test('config save requires encryption secret and unknown api paths are 404', asy
   }
 });
 
+test('api base url accepts a bare hostname and defaults to https', async () => {
+  const port = await freePort();
+  const configDir = await mkdtemp(join(tmpdir(), 'zhida-config-test-'));
+  const proxy = startProxy({
+    ZHIDA_PORT: String(port),
+    ZHIDA_CONFIG_SECRET: 'test-secret',
+    ZHIDA_CONFIG_PATH: join(configDir, 'config.enc.json'),
+  });
+
+  try {
+    await waitForUrl(`http://127.0.0.1:${port}/index.html`);
+    const saved = await saveConfig(port, 'api.example.com/v1');
+    assert.equal(saved.status, 200);
+    const savedBody = await saved.json();
+    assert.equal(savedBody.apiBaseUrl, 'https://api.example.com');
+  } finally {
+    closeChild(proxy);
+    await rm(configDir, { recursive: true, force: true });
+  }
+});
+
 test('static smoke test page is hidden even when parent test routes are enabled', async () => {
   const port = await freePort();
   const configDir = await mkdtemp(join(tmpdir(), 'zhida-config-test-'));
@@ -622,14 +643,16 @@ test('proxy request logs structured JSON without secrets', async () => {
     assert.match(proxyStart.ts, /^\d{4}-\d{2}-\d{2}T/);
     assert.equal(proxyStart.level, 'info');
     assert.equal(proxyStart.method, 'POST');
-    assert.equal(proxyStart.path, '/v1/chat/completions');
+    assert.equal(proxyStart.path, '/api/chat/completions');
+    assert.equal(proxyStart.upstream_path, '/v1/chat/completions');
 
     const proxyDone = logs.find((entry) => entry.event === 'proxy_done');
     assert.ok(proxyDone);
     assert.match(proxyDone.ts, /^\d{4}-\d{2}-\d{2}T/);
     assert.equal(proxyDone.level, 'info');
     assert.equal(proxyDone.method, 'POST');
-    assert.equal(proxyDone.path, '/v1/chat/completions');
+    assert.equal(proxyDone.path, '/api/chat/completions');
+    assert.equal(proxyDone.upstream_path, '/v1/chat/completions');
     assert.equal(proxyDone.status, 200);
     assert.equal(typeof proxyDone.duration_ms, 'number');
   } finally {
@@ -1177,19 +1200,21 @@ test('api base url accepts a trailing v1 without duplicating upstream paths', as
   }
 });
 
-test('upstream errors are redacted before returning to the browser', async () => {
+test('upstream errors are redacted before returning to the browser and in logs', async () => {
   const mock = await startMockApi();
   const port = await freePort();
   const configDir = await mkdtemp(join(tmpdir(), 'zhida-config-test-'));
+  const apiKey = 'server-secret-error-log-test';
   const proxy = startProxy({
     ZHIDA_PORT: String(port),
     ZHIDA_CONFIG_SECRET: 'test-secret',
     ZHIDA_CONFIG_PATH: join(configDir, 'config.enc.json'),
   });
+  const getProxyOutput = collectChildOutput(proxy);
 
   try {
     await waitForUrl(`http://127.0.0.1:${port}/index.html`);
-    const saved = await saveConfig(port, `http://127.0.0.1:${mock.port}`);
+    const saved = await saveConfig(port, `http://127.0.0.1:${mock.port}`, apiKey);
     assert.equal(saved.status, 200);
 
     const chat = await fetch(`http://127.0.0.1:${port}/api/chat/completions`, {
@@ -1202,8 +1227,27 @@ test('upstream errors are redacted before returning to the browser', async () =>
     });
     assert.equal(chat.status, 401);
     const body = await chat.text();
-    assert.doesNotMatch(body, /server-secret/);
+    assert.doesNotMatch(body, new RegExp(apiKey));
     assert.match(body, /\[REDACTED\]/);
+
+    await waitForCondition(
+      () => getProxyOutput().stderr.includes('"event":"proxy_error"'),
+      'proxy_error log line',
+      1000
+    );
+
+    const { stdout, stderr } = getProxyOutput();
+    assert.doesNotMatch(`${stdout}\n${stderr}`, new RegExp(apiKey));
+
+    const proxyError = parseJsonLogLines(stderr).find((entry) => entry.event === 'proxy_error');
+    assert.ok(proxyError);
+    assert.equal(proxyError.level, 'error');
+    assert.equal(proxyError.method, 'POST');
+    assert.equal(proxyError.path, '/api/chat/completions');
+    assert.equal(proxyError.upstream_path, '/v1/chat/completions');
+    assert.equal(proxyError.status, 401);
+    assert.match(proxyError.error, /\[REDACTED\]/);
+    assert.doesNotMatch(proxyError.error, new RegExp(apiKey));
   } finally {
     closeChild(proxy);
     mock.server.close();

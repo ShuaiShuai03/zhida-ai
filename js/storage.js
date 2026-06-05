@@ -152,11 +152,15 @@ export function saveActiveConversationId() {
 
 /**
  * Load selected model from localStorage.
+ * Falls back to the first available model when the persisted selection
+ * is missing or no longer in the model list.
  */
 export function loadSelectedModel() {
   const modelId = getItem(STORAGE_KEYS.SELECTED_MODEL);
   if (modelId && state.models.some((m) => m.id === modelId)) {
     state.selectedModelId = modelId;
+  } else if (state.models.length > 0) {
+    state.selectedModelId = state.models[0].id;
   }
 }
 

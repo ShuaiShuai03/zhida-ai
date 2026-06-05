@@ -115,6 +115,26 @@ ZHIDA_CONFIG_SECRET="change-this-to-a-long-random-secret" bash scripts/start.sh 
 
 服务端信任边界也要明确：拥有服务器进程权限和 `ZHIDA_CONFIG_SECRET` 的人可以解密本地配置文件。生产部署应使用足够长且随机的 `ZHIDA_CONFIG_SECRET`，并通过 HTTPS 提交配置。
 
+## 运行日志
+
+Node 后端以结构化 JSON 行（JSON Lines）输出日志，便于直接对接 `docker logs`、journald 或日志采集管道。`info` 和 `warn` 写入 stdout，`error` 写入 stderr。每行都包含 `ts`（ISO 8601 时间戳）、`level` 和 `event` 字段。
+
+| 事件 | 级别 | 主要字段 | 触发时机 |
+|------|------|----------|----------|
+| `server_start` | info | `port`、`config_status` | 服务启动监听完成；`config_status` 为 `configured` 或 `not`。 |
+| `request` | info | `method`、`path` | 收到任意请求。 |
+| `not_found` | warn | `method`、`path` | 静态资源或未知 `/api/*` 路由返回 404。 |
+| `body_limit_rejected` | warn | `method`、`path`、`limit`、`content_length` | 请求体超过对应路由上限，返回 413。 |
+| `config_saved` | info | `method`、`path` | `PUT /api/config` 成功保存配置。 |
+| `config_save_error` | error | `method`、`path`、`error` | 配置保存失败。 |
+| `proxy_start` | info | `method`、`path`、`upstream_path` | 代理请求开始。 |
+| `proxy_done` | info | `+ status`、`duration_ms` | 代理请求成功完成。 |
+| `proxy_abort` | warn | `+ reason`、`duration_ms` | 代理请求因客户端断开、超时或请求体超限终止。 |
+| `proxy_error` | error | `+ error`、`status?`、`duration_ms` | 代理请求出错或上游返回非 2xx。 |
+
+> [!NOTE]
+> 代理事件中 `path` 是浏览器请求的同源路径（如 `/api/chat/completions`），`upstream_path` 是转发到上游的路径（如 `/v1/chat/completions`）；同一次请求的 `proxy_start` 与终止事件成对出现。日志会从错误信息中移除 `ZHIDA_CONFIG_SECRET` 和上游 API 密钥，并把过长信息截断到 500 字符，但日志内容仍应按敏感运维数据对待，不要公开暴露。当前没有日志级别开关，每个请求都会产生一条 `info` 记录。
+
 ## 架构 / 请求流
 
 ```mermaid
@@ -184,18 +204,21 @@ docker compose up -d
 
 ## 环境变量
 
-| 变量 | 说明 | 默认 |
-|------|------|------|
-| `ZHIDA_CONFIG_SECRET` | 加密 API 密钥的服务端密钥，必须设置 | 必填 |
-| `ZHIDA_CONFIG_PATH` | 加密配置文件路径 | `.zhida-data/config.enc.json` |
-| `LEGACY_DOCKER_CONFIG_PATH` | Docker 升级兼容的只读配置路径 | `/app/server/data/config.enc.json` |
-| `ZHIDA_HOST` | Node 后端监听地址；本地默认回环，容器内显式 `0.0.0.0` 便于端口映射 | 本地 `127.0.0.1`；容器内 `0.0.0.0` |
-| `ZHIDA_PORT` | 本地监听端口 | `3000` |
-| `ZHIDA_HOST_IP` | Docker Compose 发布到宿主机的 IP；公网暴露前必须先做访问控制 | `127.0.0.1` |
-| `ZHIDA_HOST_PORT` | Docker Compose 暴露到宿主机的端口 | `3000` |
-| `ZHIDA_PROXY_TIMEOUT_MS` | 代理请求超时，单位毫秒 | `120000` |
-| `ZHIDA_PROXY_MAX_BODY_BYTES` | 单次代理请求体上限，单位字节 | `10485760` |
-| `ZHIDA_ENABLE_TEST_ROUTES` | 测试专用开关；只有设为字面量 `1` 才开放 `/tests/smoke.html` | 未开启 |
+下表以 `server/server.js`、`Dockerfile.server` 和 `docker-compose.proxy.yml` 当前读取的变量为准。服务端读取 `ZHIDA_PORT` 和 `ZHIDA_CONFIG_PATH`；裸名 `PORT`、`CONFIG_PATH` 不是受支持的别名。
+
+| 变量 | 是否必填 | 默认 | 说明 |
+|------|----------|------|------|
+| `ZHIDA_CONFIG_SECRET` | 是；`scripts/start.sh` 和 Docker Compose 会强制要求。直接运行 `node server/server.js` 时不会启动前预检，但没有它无法保存或读取 API 密钥。 | 无 | API 配置加密密钥；代码接受任意非空字符串，生产环境建议使用至少 16 字符的随机值。必须保密，不要设为空字符串，不要提交到仓库或镜像。 |
+| `ZHIDA_HOST` | 否 | 本地默认 `127.0.0.1`；`Dockerfile.server` 设置为 `0.0.0.0` | Node 后端监听地址。接受 Node.js `server.listen()` 支持的 host 字符串；空字符串或纯空白会回退到 `127.0.0.1`。设为 `0.0.0.0` 会监听所有可用网卡，公开暴露前必须放在受控网络或带 HTTPS、鉴权和限流的反向代理之后。 |
+| `ZHIDA_PORT` | 否 | `3000` | Node 后端监听端口；必须是 `1` 到 `65535` 之间的整数。注意服务端读取的是 `ZHIDA_PORT`，不是 `PORT`。 |
+| `ZHIDA_CONFIG_PATH` | 否 | 本地为 `.zhida-data/config.enc.json`；`Dockerfile.server` 和 Compose 设置为 `/data/config.enc.json` | 加密配置文件路径；接受文件路径字符串，保存时会创建父目录并以 `0600` 写入。用于 Docker 卷挂载时应指向持久化卷。该文件虽然已加密，仍不要提交到版本库或放到静态资源目录。注意服务端读取的是 `ZHIDA_CONFIG_PATH`，不是 `CONFIG_PATH`。 |
+| `LEGACY_DOCKER_CONFIG_PATH` | 否 | `server/data/config.enc.json`；容器内对应 `/app/server/data/config.enc.json` | 旧 Docker 配置的只读兼容路径。仅在显式设置 `ZHIDA_CONFIG_PATH` 且需要迁移旧配置时读取；保存始终写入 `ZHIDA_CONFIG_PATH`。接受文件路径字符串。 |
+| `ZHIDA_PROXY_TIMEOUT_MS` | 否 | `120000` | 上游代理超时，单位毫秒；必须是 `1` 到 `9007199254740991` 之间的整数。超时会在读取请求体、收到上游响应头、收到流式分片或完成写入等待后刷新。 |
+| `ZHIDA_PROXY_MAX_BODY_BYTES` | 否 | 服务端默认 `26214400`（25 MiB）；Docker Compose 未设置时会传入 `10485760`（10 MiB） | `/api/chat/completions` 和 `/api/responses` 的请求体上限，单位字节；必须是 `1` 到 `9007199254740991` 之间的整数。它不适用于 `PUT /api/config`（固定 `262144` 字节）、`GET /api/models`、`POST /api/responses/:id/cancel` 或其他 `/api/*` 路由（这些路由使用 `524288` 字节上限），也不限制静态文件请求。 |
+| `ZHIDA_ENABLE_TEST_ROUTES` | 否 | 未启用 | 测试页开关；只有字面量 `1` 会开放 `/tests/smoke.html`，其他值都视为关闭。不要在生产环境启用。 |
+| `ZHIDA_HOST_IP` | 否；仅 Docker Compose 使用 | `127.0.0.1` | `docker-compose.proxy.yml` 发布到宿主机的绑定 IP，不会被 Node 服务端读取。设为 `0.0.0.0` 会让宿主机所有网卡暴露该端口，公开前必须加访问控制。 |
+| `ZHIDA_HOST_PORT` | 否；仅 Docker Compose 使用 | `3000` | `docker-compose.proxy.yml` 暴露到宿主机的端口，不会被 Node 服务端读取；必须是 Docker 端口映射接受的宿主机端口值。 |
+| `NODE_VERSION` | 否；仅 Docker 构建使用 | `22` | `Dockerfile.server` 的 Node 基础镜像版本构建参数。应使用可用的 Node Docker 镜像标签；项目要求 Node.js 20+。 |
 
 配置路径兼容规则：
 

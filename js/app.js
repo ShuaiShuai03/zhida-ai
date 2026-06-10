@@ -447,7 +447,7 @@ async function init() {
   if (state.backendAvailable === false) {
     showToast(state.backendError || BACKEND_UNAVAILABLE_MESSAGE, 'error', 6000);
   } else if (!state.isApiConfigured) {
-    showToast('请先配置 API 地址和密钥，欢迎区域可直接点击“打开设置”', 'warning', 3000);
+    showToast('请先配置 API 地址和密钥', 'warning', 3000);
   } else {
     // Auto-refresh models from the API in background
     refreshModels();

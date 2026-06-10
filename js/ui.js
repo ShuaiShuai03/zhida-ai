@@ -31,7 +31,7 @@ export function showToast(message, type = 'info', duration = 1000) {
   toast.setAttribute('role', 'alert');
   toast.innerHTML = `
     <span class="toast__icon">${getToastIcon(type)}</span>
-    <span>${escapeHTML(message)}</span>
+    <span class="toast__message">${escapeHTML(message)}</span>
   `;
 
   container.appendChild(toast);

@@ -87,6 +87,13 @@
       inputValue(requireElement(selector, root, context), value);
     }
 
+    function assertNoHorizontalOverflow(win, doc, context) {
+      const scrollWidth = Math.max(doc.documentElement.scrollWidth, doc.body.scrollWidth);
+      if (scrollWidth > win.innerWidth + 1) {
+        fail(`${context}: 页面宽度 ${scrollWidth}px 超出视口 ${win.innerWidth}px`);
+      }
+    }
+
     function assertUsableAfterInteraction(win, button, context) {
       const actionHost = button.closest('.conversation-item');
       if (actionHost) {
@@ -619,6 +626,7 @@
       }
       frame.style.width = '390px';
       await new Promise((resolve) => setTimeout(resolve, 50));
+      assertNoHorizontalOverflow(win, doc, 'mobile layout');
       const mobileFooterRect = requireElement('.composer__footer', doc, '读取移动端底部控制区').getBoundingClientRect();
       const mobileSendRect = requireElement('#send-btn', doc, '读取移动端发送按钮').getBoundingClientRect();
       if (mobileSendRect.width > mobileFooterRect.width + 1 || mobileSendRect.right > mobileFooterRect.right + 1) {

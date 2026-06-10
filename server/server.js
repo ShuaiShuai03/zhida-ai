@@ -143,8 +143,48 @@ function sendJson(res, status, payload) {
   res.end(JSON.stringify(payload));
 }
 
+function getFirstHeader(value) {
+  if (Array.isArray(value)) return value[0] ?? '';
+  return value === undefined ? '' : String(value);
+}
+
 function getRequestPath(req) {
   return (req.url || '/').split('?')[0] || '/';
+}
+
+function getOriginHost(origin) {
+  try {
+    return new URL(origin).host.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+function getRequestHost(req) {
+  return getFirstHeader(req.headers.host).split(',')[0].trim().toLowerCase();
+}
+
+function isUntrustedBrowserApiRequest(req) {
+  if (!req.url?.startsWith('/api/')) return false;
+  const fetchSite = getFirstHeader(req.headers['sec-fetch-site']).trim().toLowerCase();
+  if (fetchSite === 'cross-site') return true;
+
+  const origin = getFirstHeader(req.headers.origin).trim();
+  if (!origin) return false;
+  const originHost = getOriginHost(origin);
+  if (!originHost) return true;
+  const requestHost = getRequestHost(req);
+  return !requestHost || originHost !== requestHost;
+}
+
+function rejectUntrustedBrowserApiRequest(req, res) {
+  if (!isUntrustedBrowserApiRequest(req)) return false;
+  logEvent('warn', 'cross_site_api_rejected', {
+    method: req.method,
+    path: getRequestPath(req),
+  });
+  sendError(res, 403, 'Cross-site API requests are not allowed');
+  return true;
 }
 
 function getContentLengthForLog(req) {
@@ -998,6 +1038,9 @@ const server = createServer((req, res) => {
     method: req.method,
     path: getRequestPath(req),
   });
+  if (rejectUntrustedBrowserApiRequest(req, res)) {
+    return;
+  }
   if (rejectOversizedApiRequest(req, res)) {
     return;
   }

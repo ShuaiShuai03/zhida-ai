@@ -434,6 +434,57 @@ test('api base url accepts a bare hostname and defaults to https', async () => {
   }
 });
 
+test('api requests reject cross-site browser contexts', async () => {
+  const port = await freePort();
+  const configDir = await mkdtemp(join(tmpdir(), 'zhida-config-test-'));
+  const proxy = startProxy({
+    ZHIDA_PORT: String(port),
+    ZHIDA_CONFIG_SECRET: 'test-secret',
+    ZHIDA_CONFIG_PATH: join(configDir, 'config.enc.json'),
+  });
+
+  try {
+    await waitForUrl(`http://127.0.0.1:${port}/index.html`);
+    const sameOrigin = await sendRawRequest(port, {
+      method: 'GET',
+      path: '/api/config/status',
+      headers: {
+        Origin: `http://127.0.0.1:${port}`,
+        'Sec-Fetch-Site': 'same-origin',
+      },
+    });
+    assert.equal(sameOrigin.status, 200);
+
+    const crossSiteFetchMetadata = await sendRawRequest(port, {
+      method: 'GET',
+      path: '/api/config/status',
+      headers: { 'Sec-Fetch-Site': 'cross-site' },
+    });
+    assert.equal(crossSiteFetchMetadata.status, 403);
+    assert.equal(crossSiteFetchMetadata.headers['cache-control'], 'no-store');
+    assert.deepEqual(JSON.parse(crossSiteFetchMetadata.body), {
+      error: { message: 'Cross-site API requests are not allowed' },
+    });
+
+    const crossOrigin = await sendRawRequest(port, {
+      method: 'GET',
+      path: '/api/config/status',
+      headers: { Origin: 'https://evil.example' },
+    });
+    assert.equal(crossOrigin.status, 403);
+
+    const opaqueOrigin = await sendRawRequest(port, {
+      method: 'GET',
+      path: '/api/config/status',
+      headers: { Origin: 'null' },
+    });
+    assert.equal(opaqueOrigin.status, 403);
+  } finally {
+    closeChild(proxy);
+    await rm(configDir, { recursive: true, force: true });
+  }
+});
+
 test('static smoke test page is hidden even when parent test routes are enabled', async () => {
   const port = await freePort();
   const configDir = await mkdtemp(join(tmpdir(), 'zhida-config-test-'));

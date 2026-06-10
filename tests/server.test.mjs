@@ -473,8 +473,14 @@ test('static smoke test page is served when test routes are explicitly enabled',
 
   try {
     await waitForUrl(`http://127.0.0.1:${port}/index.html`);
+    const index = await fetch(`http://127.0.0.1:${port}/index.html`);
+    assert.equal(index.headers.get('x-frame-options'), 'SAMEORIGIN');
+    assert.match(index.headers.get('content-security-policy') ?? '', /frame-ancestors 'self'/);
+
     const smoke = await fetch(`http://127.0.0.1:${port}/tests/smoke.html`);
     assert.equal(smoke.status, 200);
+    assert.match(smoke.headers.get('content-security-policy') ?? '', /script-src 'self' 'unsafe-inline'/);
+    assert.match(smoke.headers.get('content-security-policy') ?? '', /frame-src 'self'/);
     assert.match(await smoke.text(), /Zhida AI Smoke Test/);
   } finally {
     closeChild(proxy);
@@ -1318,5 +1324,54 @@ test('static server only exposes browser app assets and blocks backend internals
     if (createdLocalDataDir) {
       await rm(localDataDir, { recursive: true, force: true });
     }
+  }
+});
+
+test('server sends enterprise security headers and revalidates cacheable static assets', async () => {
+  const port = await freePort();
+  const configDir = await mkdtemp(join(tmpdir(), 'zhida-config-test-'));
+  const proxy = startProxy({
+    ZHIDA_PORT: String(port),
+    ZHIDA_CONFIG_SECRET: 'test-secret',
+    ZHIDA_CONFIG_PATH: join(configDir, 'config.enc.json'),
+  });
+
+  try {
+    await waitForUrl(`http://127.0.0.1:${port}/index.html`);
+
+    const status = await fetch(`http://127.0.0.1:${port}/api/config/status`);
+    assert.equal(status.status, 200);
+    assert.equal(status.headers.get('cache-control'), 'no-store');
+    assert.equal(status.headers.get('x-content-type-options'), 'nosniff');
+    assert.equal(status.headers.get('x-frame-options'), 'DENY');
+    assert.equal(status.headers.get('referrer-policy'), 'strict-origin-when-cross-origin');
+    assert.equal(status.headers.get('cross-origin-opener-policy'), 'same-origin');
+    assert.match(status.headers.get('permissions-policy') ?? '', /camera=\(\)/);
+
+    const index = await fetch(`http://127.0.0.1:${port}/index.html`);
+    assert.equal(index.status, 200);
+    assert.equal(index.headers.get('cache-control'), 'no-store');
+    assert.match(index.headers.get('content-security-policy') ?? '', /default-src 'self'/);
+    assert.match(index.headers.get('content-security-policy') ?? '', /frame-ancestors 'none'/);
+    assert.equal(index.headers.get('x-frame-options'), 'DENY');
+
+    const css = await fetch(`http://127.0.0.1:${port}/css/variables.css`);
+    assert.equal(css.status, 200);
+    assert.equal(css.headers.get('cache-control'), 'public, max-age=300, must-revalidate');
+    assert.equal(css.headers.get('x-content-type-options'), 'nosniff');
+    const etag = css.headers.get('etag');
+    assert.match(etag ?? '', /^W\/"[^"]+"$/);
+    assert.match(css.headers.get('last-modified') ?? '', /^[A-Z][a-z]{2}, /);
+
+    const revalidated = await fetch(`http://127.0.0.1:${port}/css/variables.css`, {
+      headers: { 'If-None-Match': etag },
+    });
+    assert.equal(revalidated.status, 304);
+    assert.equal(revalidated.headers.get('etag'), etag);
+    assert.equal(revalidated.headers.get('cache-control'), 'public, max-age=300, must-revalidate');
+    assert.equal(await revalidated.text(), '');
+  } finally {
+    closeChild(proxy);
+    await rm(configDir, { recursive: true, force: true });
   }
 });

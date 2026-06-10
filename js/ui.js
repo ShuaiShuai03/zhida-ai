@@ -196,40 +196,41 @@ export function updateComposerCapabilityControls() {
   const modelUnavailable = Boolean(model?.unavailable);
   const webSearchSupported = Boolean(model?.supportsWebSearch);
   const reasoningSupported = Boolean(model?.supportsReasoningEffort);
+  const webSearchDisabled = modelUnavailable || !webSearchSupported;
+  const reasoningDisabled = modelUnavailable || !reasoningSupported;
 
-  // Controls stay usable as long as a model is selected. When the model is not
-  // known to support a feature, sending downgrades gracefully (web search) or
-  // silently ignores it (reasoning), so we preserve the user's choice instead
-  // of force-resetting it. Only a fully unavailable model disables the controls.
+  // Preserve the user's stored preference, but only expose controls when the
+  // selected model can actually use the corresponding Responses capability.
   if (webSearchToggle) {
-    webSearchToggle.checked = !modelUnavailable && Boolean(state.webSearchEnabled);
-    webSearchToggle.disabled = modelUnavailable;
-    webSearchToggle.setAttribute('aria-disabled', String(modelUnavailable));
+    webSearchToggle.checked = !webSearchDisabled && Boolean(state.webSearchEnabled);
+    webSearchToggle.disabled = webSearchDisabled;
+    webSearchToggle.setAttribute('aria-disabled', String(webSearchDisabled));
   }
   if (webSearchControl) {
-    webSearchControl.classList.toggle('disabled', modelUnavailable);
+    webSearchControl.classList.toggle('disabled', webSearchDisabled);
     webSearchControl.title = modelUnavailable
       ? '请先选择一个可用模型'
       : webSearchSupported
       ? '使用 Responses API 的网络搜索工具'
-      : '当前模型可能不支持网络搜索，开启后发送时会自动切换为普通对话';
+      : '当前模型不支持网络搜索';
   }
   if (reasoningSelect) {
     reasoningSelect.value = state.reasoningEffort;
-    reasoningSelect.disabled = modelUnavailable;
+    reasoningSelect.disabled = reasoningDisabled;
+    reasoningSelect.setAttribute('aria-disabled', String(reasoningDisabled));
     reasoningSelect.title = modelUnavailable
       ? '请先选择一个可用模型'
       : reasoningSupported
       ? '通过 Responses API 设置推理深度'
-      : '当前模型可能不支持推理深度，设置在不支持时会被忽略';
+      : '当前模型不支持推理深度';
   }
   if (reasoningControl) {
-    reasoningControl.classList.toggle('disabled', modelUnavailable);
+    reasoningControl.classList.toggle('disabled', reasoningDisabled);
     reasoningControl.title = modelUnavailable
       ? '请先选择一个可用模型'
       : reasoningSupported
       ? '通过 Responses API 设置推理深度'
-      : '当前模型可能不支持推理深度，设置在不支持时会被忽略';
+      : '当前模型不支持推理深度';
   }
 }
 

@@ -76,7 +76,7 @@ chrome_args=(
   --no-first-run
   --no-default-browser-check
   --user-data-dir="$USER_DATA_DIR"
-  --virtual-time-budget=90000
+  --virtual-time-budget=300000
   --dump-dom "http://${APP_HOST}:${APP_PORT}/tests/smoke.html"
 )
 

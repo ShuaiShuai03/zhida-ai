@@ -25,7 +25,7 @@
 | 模块 | 能力 | 说明 |
 |------|------|------|
 | 💬 对话 | 多轮上下文、SSE 流式输出、停止生成、重新生成 | 默认走同源 Node 代理，不让浏览器直连上游 API |
-| 🧠 模型 | 默认模型、自定义模型、会话级模型记忆、模型能力识别 | 根据模型能力启用 Chat Completions、Responses、Web Search 和推理深度 |
+| 🧠 模型 | 运行时模型列表、会话级模型记忆、模型能力识别 | 根据模型能力启用 Chat Completions、Responses、Web Search 和推理深度 |
 | 🔎 工具 | Responses API 网络搜索、URL citation 来源链接 | 不支持 Responses 的模型会禁用相关控件并给出明确提示 |
 | 📝 内容 | Markdown、代码高亮、LaTeX、思考过程展示 | AI 返回内容会经过自定义 HTML 清洗器 |
 | 🗂️ 管理 | 搜索、置顶、标签、重命名、删除、清空、Markdown 导出 | 会话和非敏感设置保存在浏览器本地 |
@@ -259,7 +259,7 @@ docker compose up -d
 
 ### 模型列表
 
-- 默认模型定义在 [js/config.js](js/config.js)。
+- 模型定义不会在仓库中硬编码；应用会从已配置服务的 `/v1/models` 获取模型列表并缓存到浏览器本地。
 - 保存 API 配置后，应用会通过同源 `/api/models` 刷新模型列表。
 - 设置弹窗中的 **保存配置并获取模型列表** 会先把配置加密保存到后端，再同步更新实际对话模型下拉框。
 - 切换历史对话时，应用会恢复该对话保存的模型，继续发送时不会被其他对话当前选中的模型覆盖。
@@ -364,9 +364,13 @@ zhida-ai/
 ├── tests/
 │   ├── app-features.test.mjs
 │   ├── conversation-utils.test.mjs
+│   ├── html-security.test.mjs
 │   ├── server.test.mjs
 │   └── smoke.html
 ├── .github/
+├── specs/
+│   └── 2026-05-18-proxy-security-hardening.md
+├── .env.example
 ├── Dockerfile
 ├── Dockerfile.server
 ├── docker-compose.yml

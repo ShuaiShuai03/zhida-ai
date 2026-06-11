@@ -66,6 +66,7 @@ export function sanitizeHTML(html) {
     'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
     'ul', 'ol', 'li',
     'blockquote', 'pre', 'code',
+    'button',
     'a', 'img',
     'table', 'thead', 'tbody', 'tr', 'th', 'td',
     'hr', 'span', 'div', 'sub', 'sup',
@@ -76,6 +77,7 @@ export function sanitizeHTML(html) {
     'a': ['href', 'target', 'rel', 'title'],
     'img': ['src', 'alt', 'title', 'width', 'height'],
     'code': ['class'],
+    'button': ['class', 'type', 'aria-label', 'data-code'],
     'pre': ['class'],
     'span': ['class'],
     'div': ['class'],
@@ -122,6 +124,8 @@ export function sanitizeHTML(html) {
             node.insertBefore(child.firstChild, child);
           }
           node.removeChild(child);
+          clean(node);
+          return;
         } else {
           // Remove disallowed attributes
           const allowedForTag = ALLOWED_ATTRS[tag] ?? [];

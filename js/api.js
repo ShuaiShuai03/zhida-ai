@@ -2,7 +2,13 @@
  * API communication — SSE streaming, error handling.
  */
 
-import { DEFAULT_REASONING_EFFORT, REQUEST_TIMEOUT } from './config.js';
+import {
+  DEFAULT_REASONING_EFFORT,
+  DEFAULT_WEB_SEARCH_CONTEXT_SIZE,
+  REQUEST_TIMEOUT,
+  REASONING_EFFORTS,
+  WEB_SEARCH_CONTEXT_SIZES,
+} from './config.js';
 import { state } from './state.js';
 import { saveCachedModels } from './storage.js';
 
@@ -63,11 +69,11 @@ async function parseApiError(response, fallbackMessage) {
  * @property {function(Array<{url: string, title?: string}>): void} [onCitations] - Called when citations are received
  */
 
-export function shouldUseResponsesRoute({ model, webSearchEnabled, reasoningEffort } = {}) {
-  return getRequestRouteDecision({ model, webSearchEnabled, reasoningEffort }).route === 'responses';
+export function shouldUseResponsesRoute({ model, webSearchEnabled, reasoningEffort, webSearchContextSize } = {}) {
+  return getRequestRouteDecision({ model, webSearchEnabled, reasoningEffort, webSearchContextSize }).route === 'responses';
 }
 
-export function getRequestRouteDecision({ model, webSearchEnabled, reasoningEffort } = {}) {
+export function getRequestRouteDecision({ model, webSearchEnabled, reasoningEffort, webSearchContextSize } = {}) {
   if (!model || model.unavailable) {
     return {
       route: 'blocked',
@@ -95,6 +101,7 @@ export function getRequestRouteDecision({ model, webSearchEnabled, reasoningEffo
       requestOptions: {
         includeWebSearch: Boolean(webSearchEnabled && model.supportsWebSearch),
         includeReasoning,
+        webSearchContextSize: normalizeWebSearchContextSize(webSearchContextSize),
       },
     };
   }
@@ -111,6 +118,7 @@ export async function streamModelResponse(messages, callbacks) {
     model: state.selectedModel,
     webSearchEnabled: state.webSearchEnabled,
     reasoningEffort: state.reasoningEffort || DEFAULT_REASONING_EFFORT,
+    webSearchContextSize: state.webSearchContextSize || DEFAULT_WEB_SEARCH_CONTEXT_SIZE,
     apiBaseUrl: state.apiBaseUrl,
   });
 
@@ -368,6 +376,38 @@ export async function streamChatCompletion(messages, callbacks) {
   }
 }
 
+export function buildResponsesRequestBody(messages, requestOptions = {}, context = {}) {
+  const model = context.model || state.selectedModel;
+  const body = {
+    model: context.modelId || state.selectedModelId,
+    input: convertMessagesForResponses(messages),
+    stream: true,
+  };
+  const maxTokens = Number(context.maxTokens ?? state.maxTokens);
+  if (maxTokens > 0) {
+    body.max_output_tokens = maxTokens;
+  }
+  if (requestOptions.includeWebSearch) {
+    const webSearchTool = { type: 'web_search' };
+    const searchContextSize = normalizeWebSearchContextSize(
+      requestOptions.webSearchContextSize ?? context.webSearchContextSize ?? state.webSearchContextSize
+    );
+    if (searchContextSize !== DEFAULT_WEB_SEARCH_CONTEXT_SIZE) {
+      webSearchTool.search_context_size = searchContextSize;
+    }
+    body.tools = [webSearchTool];
+  }
+  const reasoningEffort = normalizeReasoningEffortForRequest({
+    modelId: body.model,
+    effort: context.reasoningEffort ?? state.reasoningEffort,
+    includeWebSearch: Boolean(requestOptions.includeWebSearch),
+  });
+  if (requestOptions.includeReasoning && model.supportsReasoningEffort) {
+    body.reasoning = { effort: reasoningEffort };
+  }
+  return body;
+}
+
 export async function streamResponsesAPI(messages, callbacks, requestOptions = {}) {
   const controller = new AbortController();
   state.abortController = controller;
@@ -454,22 +494,7 @@ export async function streamResponsesAPI(messages, callbacks, requestOptions = {
 
   resetTimeout();
 
-  const model = state.selectedModel;
-  const body = {
-    model: state.selectedModelId,
-    input: convertMessagesForResponses(messages),
-    stream: true,
-  };
-
-  if (state.maxTokens > 0) {
-    body.max_output_tokens = state.maxTokens;
-  }
-  if (requestOptions.includeWebSearch) {
-    body.tools = [{ type: 'web_search' }];
-  }
-  if (requestOptions.includeReasoning && model.supportsReasoningEffort) {
-    body.reasoning = { effort: state.reasoningEffort || DEFAULT_REASONING_EFFORT };
-  }
+  const body = buildResponsesRequestBody(messages, requestOptions);
 
   try {
     if (!state.isApiConfigured) {
@@ -838,6 +863,22 @@ function normalizeStringArray(value) {
     .filter(Boolean);
 }
 
+function normalizeReasoningEffort(value) {
+  return REASONING_EFFORTS.includes(value) ? value : DEFAULT_REASONING_EFFORT;
+}
+
+function normalizeReasoningEffortForRequest({ modelId, effort, includeWebSearch }) {
+  const normalized = normalizeReasoningEffort(effort);
+  if (includeWebSearch && normalized === 'minimal' && /^gpt-5($|-)/i.test(String(modelId || ''))) {
+    return 'low';
+  }
+  return normalized;
+}
+
+function normalizeWebSearchContextSize(value) {
+  return WEB_SEARCH_CONTEXT_SIZES.includes(value) ? value : DEFAULT_WEB_SEARCH_CONTEXT_SIZE;
+}
+
 function hasExplicitReasoningSupport(apiModel) {
   const supportedParameters = normalizeStringArray(apiModel.supported_parameters);
   if (supportedParameters.some((param) => /^(reasoning|reasoning\.effort|reasoning_effort)$/i.test(param))) {
@@ -848,9 +889,9 @@ function hasExplicitReasoningSupport(apiModel) {
   if (apiModel.capabilities?.reasoning === true || apiModel.capabilities?.reasoning_effort === true) return true;
 
   // Heuristic: models with "thinking", "reasoner", "o1-", "o3-" in the name
-  // typically support reasoning effort.
+  // or current OpenAI GPT-5 family models typically support reasoning effort.
   const lower = String(apiModel.id || '').toLowerCase();
-  return /thinking|reasoner|^o[1-9](-|$)|deep-think/.test(lower);
+  return /thinking|reasoner|^o[1-9](-|$)|^gpt-5([.-]|$)|deep-think/.test(lower);
 }
 
 /** Known tokens that should be uppercased. */

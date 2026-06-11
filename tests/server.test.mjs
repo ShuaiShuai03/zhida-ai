@@ -218,7 +218,7 @@ async function startMockApi() {
       req.on('end', () => {
         currentRequest.body = Buffer.concat(chunks).toString('utf8') || '{}';
         const payload = JSON.parse(currentRequest.body || '{}');
-        if (payload.force_responses_unsupported) {
+        if (payload.model === 'force-responses-unsupported') {
           res.writeHead(400, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: { message: `call_methods must include responses ${req.headers.authorization}` } }));
           return;
@@ -846,6 +846,58 @@ test('responses proxy uses server-side authorization and forwards cancel request
   }
 });
 
+test('responses proxy rejects disallowed tool payloads before upstream forwarding', async () => {
+  const mock = await startMockApi();
+  const port = await freePort();
+  const configDir = await mkdtemp(join(tmpdir(), 'zhida-config-test-'));
+  const proxy = startProxy({
+    ZHIDA_PORT: String(port),
+    ZHIDA_CONFIG_SECRET: 'test-secret',
+    ZHIDA_CONFIG_PATH: join(configDir, 'config.enc.json'),
+  });
+
+  try {
+    await waitForUrl(`http://127.0.0.1:${port}/index.html`);
+    const saved = await saveConfig(port, `http://127.0.0.1:${mock.port}`);
+    assert.equal(saved.status, 200);
+
+    const response = await fetch(`http://127.0.0.1:${port}/api/responses`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'gpt-test',
+        input: 'hello',
+        stream: true,
+        tools: [{ type: 'mcp', server_label: 'external', server_url: 'https://example.com/mcp' }],
+      }),
+    });
+
+    assert.equal(response.status, 400);
+    assert.match(await response.text(), /Responses 请求包含不支持的工具/);
+    assert.equal(mock.requests.filter((request) => request.url === '/v1/responses').length, 0);
+
+    const invalidReasoning = await fetch(`http://127.0.0.1:${port}/api/responses`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'gpt-5',
+        input: 'hello',
+        stream: true,
+        tools: [{ type: 'web_search' }],
+        reasoning: { effort: 'minimal' },
+      }),
+    });
+
+    assert.equal(invalidReasoning.status, 400);
+    assert.match(await invalidReasoning.text(), /不支持 minimal 推理深度/);
+    assert.equal(mock.requests.filter((request) => request.url === '/v1/responses').length, 0);
+  } finally {
+    closeChild(proxy);
+    mock.server.close();
+    await rm(configDir, { recursive: true, force: true });
+  }
+});
+
 test('malformed encoded cancel route is rejected without crashing proxy', async () => {
   const port = await freePort();
   const configDir = await mkdtemp(join(tmpdir(), 'zhida-config-test-'));
@@ -1026,7 +1078,7 @@ test('responses capability errors are normalized and redacted', async () => {
         'Content-Type': 'application/json',
         Authorization: 'Bearer browser-secret',
       },
-      body: JSON.stringify({ force_responses_unsupported: true }),
+      body: JSON.stringify({ model: 'force-responses-unsupported', input: 'hello', stream: true }),
     });
     assert.equal(responses.status, 400);
     const body = await responses.text();

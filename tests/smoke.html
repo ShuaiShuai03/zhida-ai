@@ -585,6 +585,7 @@
       assertElementsExist(doc, [
         '#chat-input',
         '#web-search-toggle',
+        '#web-search-context-select',
         '#reasoning-effort-select',
         '#input-template-btn',
         '#upload-btn',
@@ -607,8 +608,12 @@
       if (!(sendRect.top >= textareaRect.bottom)) {
         fail('composer controls should place send below textarea');
       }
-      if (!doc.querySelector('#web-search-toggle') || !doc.querySelector('#reasoning-effort-select')) {
-        fail('composer should include web search and reasoning controls');
+      if (
+        !doc.querySelector('#web-search-toggle') ||
+        !doc.querySelector('#web-search-context-select') ||
+        !doc.querySelector('#reasoning-effort-select')
+      ) {
+        fail('composer should include web search, search context, and reasoning controls');
       }
       if (sendRect.width < 36 || sendRect.width > 56) {
         fail('send button should be a compact circular action');
@@ -956,6 +961,9 @@
       if (!doc.querySelector('#web-search-toggle')?.disabled) {
         fail('chat-only standard model should disable web search');
       }
+      if (!doc.querySelector('#web-search-context-select')?.disabled) {
+        fail('chat-only standard model should disable search context');
+      }
       requireElement('#web-search-toggle', doc, '开启网络搜索').checked = true;
       dispatchBySelector('#web-search-toggle', new Event('change', { bubbles: true }), doc, '确认网络搜索切换');
       if (doc.querySelector('#web-search-toggle')?.checked) {
@@ -973,11 +981,20 @@
       );
       requireElement('#web-search-toggle', doc, '切换网络搜索开关').checked = true;
       dispatchBySelector('#web-search-toggle', new Event('change', { bubbles: true }), doc, '确认网络搜索切换');
+      await waitFor(
+        () => !doc.querySelector('#web-search-context-select')?.disabled,
+        'responses-capable model enables search context'
+      );
+      inputBySelector('#web-search-context-select', 'high', doc, '设置搜索范围');
       inputBySelector('#chat-input', 'web search check', doc, '输入搜索验证消息');
       clickBySelector('#send-btn', doc, '发送搜索验证消息');
       await waitFor(
         () => Array.from(doc.querySelectorAll('.message--ai .message__content')).some((node) => node.textContent.includes('Responses search reply')),
         'web search responses reply'
+      );
+      await waitFor(
+        () => Array.from(doc.querySelectorAll('.message--ai .message__content')).some((node) => node.textContent.includes('search context: high')),
+        'search context forwarded to responses'
       );
       await waitFor(
         () => Array.from(doc.querySelectorAll('.message--ai .message__content')).some((node) => node.textContent.includes('Example Source')),

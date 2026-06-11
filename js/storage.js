@@ -7,7 +7,9 @@ import {
   MAX_CONVERSATIONS,
   MAX_STORAGE_MB,
   DEFAULT_REASONING_EFFORT,
+  DEFAULT_WEB_SEARCH_CONTEXT_SIZE,
   REASONING_EFFORTS,
+  WEB_SEARCH_CONTEXT_SIZES,
 } from './config.js';
 import { pruneConversationsToLimit, sortConversationsByUpdatedAt } from './conversation-utils.js';
 import { createBackupPayload, mergeBackupIntoState, parseBackupPayload } from './backup-utils.js';
@@ -205,6 +207,9 @@ export function loadSettings() {
     if (typeof data.systemPrompt === 'string') state.systemPrompt = data.systemPrompt;
     if (typeof data.apiBaseUrl === 'string') state.apiBaseUrl = data.apiBaseUrl;
     state.webSearchEnabled = Boolean(data.webSearchEnabled);
+    state.webSearchContextSize = WEB_SEARCH_CONTEXT_SIZES.includes(data.webSearchContextSize)
+      ? data.webSearchContextSize
+      : DEFAULT_WEB_SEARCH_CONTEXT_SIZE;
     state.reasoningEffort = REASONING_EFFORTS.includes(data.reasoningEffort)
       ? data.reasoningEffort
       : DEFAULT_REASONING_EFFORT;
@@ -222,6 +227,7 @@ export function saveSettings() {
     systemPrompt: state.systemPrompt,
     apiBaseUrl: state.apiBaseUrl,
     webSearchEnabled: state.webSearchEnabled,
+    webSearchContextSize: state.webSearchContextSize,
     reasoningEffort: state.reasoningEffort,
   });
 }
@@ -254,6 +260,7 @@ export async function exportAllDataPayload() {
       systemPrompt: state.systemPrompt,
       apiBaseUrl: state.apiBaseUrl,
       webSearchEnabled: state.webSearchEnabled,
+      webSearchContextSize: state.webSearchContextSize,
       reasoningEffort: state.reasoningEffort,
     },
     conversations: state.conversations,
@@ -275,6 +282,7 @@ export async function importAllData(rawBackup) {
       systemPrompt: state.systemPrompt,
       apiBaseUrl: state.apiBaseUrl,
       webSearchEnabled: state.webSearchEnabled,
+      webSearchContextSize: state.webSearchContextSize,
       reasoningEffort: state.reasoningEffort,
     },
     conversations: state.conversations,
@@ -289,6 +297,9 @@ export async function importAllData(rawBackup) {
   if (typeof merged.settings.systemPrompt === 'string') state.systemPrompt = merged.settings.systemPrompt;
   if (typeof merged.settings.apiBaseUrl === 'string') state.apiBaseUrl = merged.settings.apiBaseUrl;
   state.webSearchEnabled = Boolean(merged.settings.webSearchEnabled);
+  state.webSearchContextSize = WEB_SEARCH_CONTEXT_SIZES.includes(merged.settings.webSearchContextSize)
+    ? merged.settings.webSearchContextSize
+    : DEFAULT_WEB_SEARCH_CONTEXT_SIZE;
   state.reasoningEffort = REASONING_EFFORTS.includes(merged.settings.reasoningEffort)
     ? merged.settings.reasoningEffort
     : DEFAULT_REASONING_EFFORT;

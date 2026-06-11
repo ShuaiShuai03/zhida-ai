@@ -492,6 +492,7 @@ function bindInputEvents() {
   const fileInput = $('#file-input');
   const webSearchToggle = $('#web-search-toggle');
   const reasoningSelect = $('#reasoning-effort-select');
+  const webSearchContextSelect = $('#web-search-context-select');
 
   // chat.js 只负责流式状态，最终可发送条件统一回到这里计算，避免遗漏附件态。
   document.addEventListener('composer-state-sync', () => {
@@ -539,6 +540,14 @@ function bindInputEvents() {
   if (reasoningSelect) {
     reasoningSelect.addEventListener('change', () => {
       state.reasoningEffort = reasoningSelect.value;
+      saveSettings();
+      updateComposerCapabilityControls();
+    }, { signal });
+  }
+
+  if (webSearchContextSelect) {
+    webSearchContextSelect.addEventListener('change', () => {
+      state.webSearchContextSize = webSearchContextSelect.value;
       saveSettings();
       updateComposerCapabilityControls();
     }, { signal });

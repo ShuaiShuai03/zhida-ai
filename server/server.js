@@ -61,6 +61,17 @@ const CONFIG_VERSION = 1;
 const ENCRYPTION_ALGORITHM = 'aes-256-gcm';
 const REQUEST_BODY_TOO_LARGE = 'request_body_too_large';
 const LOG_MESSAGE_MAX_LENGTH = 500;
+const ALLOWED_RESPONSES_FIELDS = new Set([
+  'model',
+  'input',
+  'stream',
+  'max_output_tokens',
+  'tools',
+  'reasoning',
+]);
+const ALLOWED_RESPONSES_TOOL_FIELDS = new Set(['type', 'search_context_size']);
+const ALLOWED_REASONING_EFFORTS = new Set(['none', 'minimal', 'low', 'medium', 'high', 'xhigh']);
+const ALLOWED_WEB_SEARCH_CONTEXT_SIZES = new Set(['low', 'medium', 'high']);
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -436,6 +447,86 @@ function isResponsesUnsupportedError(upstreamPath, status, rawError) {
     .test(rawError || '');
 }
 
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function validateResponsesProxyPayload(rawBody) {
+  let payload;
+  try {
+    payload = JSON.parse(rawBody || '{}');
+  } catch {
+    return { ok: false, message: 'Responses 请求体必须是合法 JSON' };
+  }
+
+  if (!isPlainObject(payload)) {
+    return { ok: false, message: 'Responses 请求体必须是对象' };
+  }
+
+  for (const key of Object.keys(payload)) {
+    if (!ALLOWED_RESPONSES_FIELDS.has(key)) {
+      return { ok: false, message: 'Responses 请求包含不支持的字段' };
+    }
+  }
+
+  if (typeof payload.model !== 'string' || !payload.model.trim()) {
+    return { ok: false, message: 'Responses 请求缺少模型' };
+  }
+  if (!Object.hasOwn(payload, 'input')) {
+    return { ok: false, message: 'Responses 请求缺少输入' };
+  }
+  if (Object.hasOwn(payload, 'stream') && typeof payload.stream !== 'boolean') {
+    return { ok: false, message: 'Responses stream 必须是布尔值' };
+  }
+  if (Object.hasOwn(payload, 'max_output_tokens')) {
+    const value = payload.max_output_tokens;
+    if (!Number.isInteger(value) || value < 1 || value > Number.MAX_SAFE_INTEGER) {
+      return { ok: false, message: 'Responses 最大输出 token 数无效' };
+    }
+  }
+  if (Object.hasOwn(payload, 'reasoning')) {
+    if (!isPlainObject(payload.reasoning)) {
+      return { ok: false, message: 'Responses 推理参数无效' };
+    }
+    const keys = Object.keys(payload.reasoning);
+    if (keys.length !== 1 || keys[0] !== 'effort' || !ALLOWED_REASONING_EFFORTS.has(payload.reasoning.effort)) {
+      return { ok: false, message: 'Responses 推理深度无效' };
+    }
+  }
+  if (Object.hasOwn(payload, 'tools')) {
+    if (!Array.isArray(payload.tools)) {
+      return { ok: false, message: 'Responses 工具参数无效' };
+    }
+    for (const tool of payload.tools) {
+      if (!isPlainObject(tool) || tool.type !== 'web_search') {
+        return { ok: false, message: 'Responses 请求包含不支持的工具' };
+      }
+      for (const key of Object.keys(tool)) {
+        if (!ALLOWED_RESPONSES_TOOL_FIELDS.has(key)) {
+          return { ok: false, message: 'Responses 网络搜索参数无效' };
+        }
+      }
+      if (
+        Object.hasOwn(tool, 'search_context_size')
+        && !ALLOWED_WEB_SEARCH_CONTEXT_SIZES.has(tool.search_context_size)
+      ) {
+        return { ok: false, message: 'Responses 搜索范围无效' };
+      }
+    }
+  }
+  const hasWebSearch = Array.isArray(payload.tools)
+    && payload.tools.some((tool) => isPlainObject(tool) && tool.type === 'web_search');
+  if (
+    hasWebSearch
+    && payload.reasoning?.effort === 'minimal'
+    && /^gpt-5($|-)/i.test(payload.model)
+  ) {
+    return { ok: false, message: 'Responses gpt-5 网络搜索不支持 minimal 推理深度' };
+  }
+
+  return { ok: true };
+}
+
 function getApiBodyLimit(req) {
   if (!req.url?.startsWith('/api/')) return null;
   const path = req.url.split('?')[0];
@@ -760,8 +851,17 @@ async function handleProxy(req, res, upstreamPath) {
   try {
     if (req.method === 'POST') {
       try {
-        fetchOptions.body = await readRequestBodyWithLimit(req);
+        const rawBody = await readRequestBodyWithLimit(req);
         refreshTimeout();
+        if (upstreamPath === '/v1/responses') {
+          const validation = validateResponsesProxyPayload(rawBody);
+          if (!validation.ok) {
+            completed = true;
+            sendJson(res, 400, { error: { message: validation.message } });
+            return;
+          }
+        }
+        fetchOptions.body = rawBody;
         upstreamHeaders['Content-Type'] = req.headers['content-type'] || 'application/json';
       } catch (err) {
         if (abortReason === 'client_closed') return;

@@ -135,10 +135,20 @@
             <label class="reasoning-control" title="当前模型不是深度思考模型，无法设置推理深度">
               <span class="reasoning-control__label">思考深度</span>
               <select id="reasoning-effort-select" aria-label="思考深度">
+                <option value="none">无</option>
+                <option value="minimal">最小</option>
                 <option value="low">低</option>
                 <option value="medium">标准</option>
                 <option value="high">高</option>
                 <option value="xhigh">极高</option>
+              </select>
+            </label>
+            <label class="reasoning-control search-context-control" title="开启网络搜索后可设置搜索范围">
+              <span class="reasoning-control__label">搜索范围</span>
+              <select id="web-search-context-select" aria-label="搜索范围">
+                <option value="low">低</option>
+                <option value="medium">标准</option>
+                <option value="high">高</option>
               </select>
             </label>
           </div>

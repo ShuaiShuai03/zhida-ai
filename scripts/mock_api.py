@@ -81,7 +81,9 @@ class Handler(BaseHTTPRequestHandler):
             raw_body = self.rfile.read(length)
             payload = json.loads(raw_body.decode("utf-8") or "{}")
             prompt = extract_prompt(payload).lower()
-            has_search = any(tool.get("type") == "web_search" for tool in payload.get("tools", []))
+            search_tool = next((tool for tool in payload.get("tools", []) if tool.get("type") == "web_search"), None)
+            has_search = search_tool is not None
+            search_context = search_tool.get("search_context_size", "medium") if search_tool else ""
             effort = (payload.get("reasoning") or {}).get("effort", "")
 
             self.send_response(200)
@@ -92,7 +94,7 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(b'event: response.created\ndata: {"id":"resp_smoke"}\n\n')
             if has_search:
                 self.wfile.write(b'event: response.output_item.added\ndata: {"item":{"type":"web_search_call"}}\n\n')
-                self.write_response_sse("Responses search reply")
+                self.write_response_sse(f"Responses search reply; search context: {search_context}")
             elif "reasoning check" in prompt:
                 self.write_response_sse(f"reasoning: {effort}")
             else:

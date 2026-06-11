@@ -192,11 +192,14 @@ export function updateComposerCapabilityControls() {
   const webSearchControl = $('.tool-toggle');
   const reasoningSelect = $('#reasoning-effort-select');
   const reasoningControl = $('.reasoning-control');
+  const webSearchContextSelect = $('#web-search-context-select');
+  const webSearchContextControl = $('.search-context-control');
   const model = state.selectedModel;
   const modelUnavailable = Boolean(model?.unavailable);
   const webSearchSupported = Boolean(model?.supportsWebSearch);
   const reasoningSupported = Boolean(model?.supportsReasoningEffort);
   const webSearchDisabled = modelUnavailable || !webSearchSupported;
+  const searchContextDisabled = webSearchDisabled || !state.webSearchEnabled;
   const reasoningDisabled = modelUnavailable || !reasoningSupported;
 
   // Preserve the user's stored preference, but only expose controls when the
@@ -231,6 +234,28 @@ export function updateComposerCapabilityControls() {
       : reasoningSupported
       ? '通过 Responses API 设置推理深度'
       : '当前模型不支持推理深度';
+  }
+  if (webSearchContextSelect) {
+    webSearchContextSelect.value = state.webSearchContextSize;
+    webSearchContextSelect.disabled = searchContextDisabled;
+    webSearchContextSelect.setAttribute('aria-disabled', String(searchContextDisabled));
+    webSearchContextSelect.title = modelUnavailable
+      ? '请先选择一个可用模型'
+      : webSearchSupported && state.webSearchEnabled
+      ? '设置网络搜索上下文范围'
+      : webSearchSupported
+      ? '开启网络搜索后可设置搜索范围'
+      : '当前模型不支持网络搜索';
+  }
+  if (webSearchContextControl) {
+    webSearchContextControl.classList.toggle('disabled', searchContextDisabled);
+    webSearchContextControl.title = modelUnavailable
+      ? '请先选择一个可用模型'
+      : webSearchSupported && state.webSearchEnabled
+      ? '设置网络搜索上下文范围'
+      : webSearchSupported
+      ? '开启网络搜索后可设置搜索范围'
+      : '当前模型不支持网络搜索';
   }
 }
 

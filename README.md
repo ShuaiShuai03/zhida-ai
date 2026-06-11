@@ -164,7 +164,7 @@ flowchart LR
 | `PUT /api/config` | 本地加密保存 | 保存 API 地址和密钥，要求 `ZHIDA_CONFIG_SECRET`。 |
 | `GET /api/models` | `${apiBaseUrl}/v1/models` | 获取模型列表。 |
 | `POST /api/chat/completions` | `${apiBaseUrl}/v1/chat/completions` | 普通聊天和流式响应。 |
-| `POST /api/responses` | `${apiBaseUrl}/v1/responses` | Responses、网络搜索、推理深度。 |
+| `POST /api/responses` | `${apiBaseUrl}/v1/responses` | Responses、网络搜索、推理深度；代理只接受应用所需字段、`web_search` 工具、合法搜索范围和合法推理深度。 |
 | `POST /api/responses/:id/cancel` | `${apiBaseUrl}/v1/responses/:id/cancel` | 取消 Responses 请求。 |
 
 浏览器不会直接访问上游 API，也不会向上游发送 `Authorization`。所有上游认证都由 Node 后端用加密保存的配置完成。
@@ -238,11 +238,13 @@ docker compose up -d
 
 网络搜索与推理深度规则：
 
-- 网络搜索使用 Responses API 的 `web_search` 工具。只有当前模型明确支持 Responses 时才会启用网络搜索开关。
+- 网络搜索使用 Responses API 的 `web_search` 工具；搜索范围可选 `low`、`medium`、`high`，默认 `medium`。
 - 如果 `/v1/models` 返回 `call_methods`、`callMethods` 或 `capabilities.call_methods`，应用以该字段为准；只有包含 `responses` 的模型才会允许网络搜索。
-- 如果模型没有声明能力，第三方或 OpenAI-compatible 服务默认不启用 Responses / Web Search，避免把只支持 Chat Completions 的模型误发到 `/v1/responses`。
-- 官方 OpenAI API 地址下的 GPT-5、GPT-4.1 和 o 系列按内置规则允许 Responses；支持推理深度的模型才会显示可用的“思考深度”控件。
-- 不支持时应用不会伪造搜索、不会静默降级为普通聊天、也不会自动切换模型；发送前会阻止请求并提示用户切换支持网络搜索的模型。
+- 如果模型没有声明能力，应用会先乐观使用 Responses；首次收到 Responses 能力错误后会缓存该模型不支持 Responses，并自动重试普通 Chat Completions。
+- GPT-5 系列、o 系列、thinking/reasoner/deep-think 命名模型，或显式声明 `supported_parameters: ["reasoning"]` / `supports_reasoning_effort: true` 的模型，会显示可用的“思考深度”控件。
+- 推理深度可选 `none`、`minimal`、`low`、`medium`、`high`、`xhigh`；默认 `medium`。
+- 按 OpenAI 当前限制，`gpt-5` 使用网络搜索时不发送 `minimal` 推理深度；前端会改用 `low`，后端也会拒绝直接提交的无效组合。
+- 不支持网络搜索时应用不会伪造搜索；当前模型已知不支持时会降级为普通聊天并提示用户。
 - Responses 上游返回 `call_methods must include responses`、`does not support this API` 等能力错误时，后端会归一化为中文提示，并继续脱敏上游错误内容。
 
 ## 数据管理与输入
@@ -309,7 +311,7 @@ bash scripts/run_smoke.sh
 git diff --check
 ```
 
-浏览器 smoke 会启动本地 Node 后端和 mock API，并设置 `ZHIDA_ENABLE_TEST_ROUTES=1` 临时开放 `/tests/smoke.html`；普通运行环境默认不会暴露该测试页。它覆盖加密配置保存、模型获取、会话模型恢复、网络搜索禁用态、Responses `web_search`、推理深度、流式回答、停止生成、后续请求恢复、提示词模板、对话置顶/标签搜索、备份导入恢复、Markdown URL / inline style 清洗、复制内容一致性以及键盘可达性。
+浏览器 smoke 会启动本地 Node 后端和 mock API，并设置 `ZHIDA_ENABLE_TEST_ROUTES=1` 临时开放 `/tests/smoke.html`；普通运行环境默认不会暴露该测试页。它覆盖加密配置保存、模型获取、会话模型恢复、网络搜索禁用态、Responses `web_search`、搜索范围、推理深度、流式回答、停止生成、后续请求恢复、提示词模板、对话置顶/标签搜索、备份导入恢复、Markdown URL / inline style 清洗、复制内容一致性以及键盘可达性。
 
 慢机器或 CI 环境可以增加 Chrome 等待时间：
 

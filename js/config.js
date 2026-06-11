@@ -16,7 +16,9 @@ export const DEFAULT_TEMPERATURE = 0.7;
 export const DEFAULT_MAX_TOKENS = 4096;
 export const REQUEST_TIMEOUT = 60000; // 60 seconds
 export const DEFAULT_REASONING_EFFORT = 'medium';
-export const REASONING_EFFORTS = ['low', 'medium', 'high', 'xhigh'];
+export const REASONING_EFFORTS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh'];
+export const DEFAULT_WEB_SEARCH_CONTEXT_SIZE = 'medium';
+export const WEB_SEARCH_CONTEXT_SIZES = ['low', 'medium', 'high'];
 
 // ---- Default System Prompt ----
 export const DEFAULT_SYSTEM_PROMPT = '你是一个有用的AI助手。请用简体中文回答所有问题。';

@@ -539,9 +539,16 @@ function canUseSelectedModelForRequest() {
     reasoningEffort: state.reasoningEffort,
     apiBaseUrl: state.apiBaseUrl,
   });
-  if (decision.route !== 'blocked') return true;
-  showToast(decision.reason, 'error', 3000);
-  return false;
+  if (decision.route === 'blocked') {
+    showToast(decision.reason, 'error', 3000);
+    return false;
+  }
+  // Inform user once when features are silently dropped (e.g. web search
+  // disabled because the model doesn't support it).
+  if (decision.downgraded) {
+    showToast('当前模型不支持所选功能，已自动降级为普通对话', 'warning', 2500);
+  }
+  return true;
 }
 
 /**

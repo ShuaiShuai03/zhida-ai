@@ -31,7 +31,7 @@ export function showToast(message, type = 'info', duration = 1000) {
   toast.setAttribute('role', 'alert');
   toast.innerHTML = `
     <span class="toast__icon">${getToastIcon(type)}</span>
-    <span>${escapeHTML(message)}</span>
+    <span class="toast__message">${escapeHTML(message)}</span>
   `;
 
   container.appendChild(toast);
@@ -192,33 +192,70 @@ export function updateComposerCapabilityControls() {
   const webSearchControl = $('.tool-toggle');
   const reasoningSelect = $('#reasoning-effort-select');
   const reasoningControl = $('.reasoning-control');
+  const webSearchContextSelect = $('#web-search-context-select');
+  const webSearchContextControl = $('.search-context-control');
   const model = state.selectedModel;
+  const modelUnavailable = Boolean(model?.unavailable);
   const webSearchSupported = Boolean(model?.supportsWebSearch);
   const reasoningSupported = Boolean(model?.supportsReasoningEffort);
+  const webSearchDisabled = modelUnavailable || !webSearchSupported;
+  const searchContextDisabled = webSearchDisabled || !state.webSearchEnabled;
+  const reasoningDisabled = modelUnavailable || !reasoningSupported;
 
+  // Preserve the user's stored preference, but only expose controls when the
+  // selected model can actually use the corresponding Responses capability.
   if (webSearchToggle) {
-    webSearchToggle.checked = webSearchSupported && Boolean(state.webSearchEnabled);
-    webSearchToggle.disabled = !webSearchSupported;
-    webSearchToggle.setAttribute('aria-disabled', String(!webSearchSupported));
+    webSearchToggle.checked = !webSearchDisabled && Boolean(state.webSearchEnabled);
+    webSearchToggle.disabled = webSearchDisabled;
+    webSearchToggle.setAttribute('aria-disabled', String(webSearchDisabled));
   }
   if (webSearchControl) {
-    webSearchControl.classList.toggle('disabled', !webSearchSupported);
-    webSearchControl.title = webSearchSupported
+    webSearchControl.classList.toggle('disabled', webSearchDisabled);
+    webSearchControl.title = modelUnavailable
+      ? '请先选择一个可用模型'
+      : webSearchSupported
       ? '使用 Responses API 的网络搜索工具'
-      : model?.capabilityReason || '当前模型不支持 Responses API，无法使用网络搜索';
+      : '当前模型不支持网络搜索';
   }
   if (reasoningSelect) {
     reasoningSelect.value = state.reasoningEffort;
-    reasoningSelect.disabled = !reasoningSupported;
-    reasoningSelect.title = reasoningSupported
+    reasoningSelect.disabled = reasoningDisabled;
+    reasoningSelect.setAttribute('aria-disabled', String(reasoningDisabled));
+    reasoningSelect.title = modelUnavailable
+      ? '请先选择一个可用模型'
+      : reasoningSupported
       ? '通过 Responses API 设置推理深度'
-      : '当前模型不支持 Responses API 推理深度设置';
+      : '当前模型不支持推理深度';
   }
   if (reasoningControl) {
-    reasoningControl.classList.toggle('disabled', !reasoningSupported);
-    reasoningControl.title = reasoningSupported
+    reasoningControl.classList.toggle('disabled', reasoningDisabled);
+    reasoningControl.title = modelUnavailable
+      ? '请先选择一个可用模型'
+      : reasoningSupported
       ? '通过 Responses API 设置推理深度'
-      : '当前模型不支持 Responses API 推理深度设置';
+      : '当前模型不支持推理深度';
+  }
+  if (webSearchContextSelect) {
+    webSearchContextSelect.value = state.webSearchContextSize;
+    webSearchContextSelect.disabled = searchContextDisabled;
+    webSearchContextSelect.setAttribute('aria-disabled', String(searchContextDisabled));
+    webSearchContextSelect.title = modelUnavailable
+      ? '请先选择一个可用模型'
+      : webSearchSupported && state.webSearchEnabled
+      ? '设置网络搜索上下文范围'
+      : webSearchSupported
+      ? '开启网络搜索后可设置搜索范围'
+      : '当前模型不支持网络搜索';
+  }
+  if (webSearchContextControl) {
+    webSearchContextControl.classList.toggle('disabled', searchContextDisabled);
+    webSearchContextControl.title = modelUnavailable
+      ? '请先选择一个可用模型'
+      : webSearchSupported && state.webSearchEnabled
+      ? '设置网络搜索上下文范围'
+      : webSearchSupported
+      ? '开启网络搜索后可设置搜索范围'
+      : '当前模型不支持网络搜索';
   }
 }
 

@@ -318,10 +318,10 @@
 
 .toast {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: var(--space-3);
   padding: var(--space-3) var(--space-4);
-  max-width: min(100%, 360px);
+  max-width: min(360px, calc(100vw - var(--space-8)));
   background: var(--color-toast-bg);
   border: 1px solid var(--color-toast-border);
   border-radius: var(--radius-md);
@@ -331,8 +331,13 @@
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   pointer-events: auto;
-  max-width: 360px;
   animation: toast-slide-in 0.3s ease-out forwards;
+}
+
+.toast__message {
+  min-width: 0;
+  line-height: var(--line-height-tight);
+  overflow-wrap: anywhere;
 }
 
 .toast.removing {

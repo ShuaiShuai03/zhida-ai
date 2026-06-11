@@ -218,7 +218,7 @@ async function startMockApi() {
       req.on('end', () => {
         currentRequest.body = Buffer.concat(chunks).toString('utf8') || '{}';
         const payload = JSON.parse(currentRequest.body || '{}');
-        if (payload.force_responses_unsupported) {
+        if (payload.model === 'force-responses-unsupported') {
           res.writeHead(400, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: { message: `call_methods must include responses ${req.headers.authorization}` } }));
           return;
@@ -413,6 +413,78 @@ test('config save requires encryption secret and unknown api paths are 404', asy
   }
 });
 
+test('api base url accepts a bare hostname and defaults to https', async () => {
+  const port = await freePort();
+  const configDir = await mkdtemp(join(tmpdir(), 'zhida-config-test-'));
+  const proxy = startProxy({
+    ZHIDA_PORT: String(port),
+    ZHIDA_CONFIG_SECRET: 'test-secret',
+    ZHIDA_CONFIG_PATH: join(configDir, 'config.enc.json'),
+  });
+
+  try {
+    await waitForUrl(`http://127.0.0.1:${port}/index.html`);
+    const saved = await saveConfig(port, 'api.example.com/v1');
+    assert.equal(saved.status, 200);
+    const savedBody = await saved.json();
+    assert.equal(savedBody.apiBaseUrl, 'https://api.example.com');
+  } finally {
+    closeChild(proxy);
+    await rm(configDir, { recursive: true, force: true });
+  }
+});
+
+test('api requests reject cross-site browser contexts', async () => {
+  const port = await freePort();
+  const configDir = await mkdtemp(join(tmpdir(), 'zhida-config-test-'));
+  const proxy = startProxy({
+    ZHIDA_PORT: String(port),
+    ZHIDA_CONFIG_SECRET: 'test-secret',
+    ZHIDA_CONFIG_PATH: join(configDir, 'config.enc.json'),
+  });
+
+  try {
+    await waitForUrl(`http://127.0.0.1:${port}/index.html`);
+    const sameOrigin = await sendRawRequest(port, {
+      method: 'GET',
+      path: '/api/config/status',
+      headers: {
+        Origin: `http://127.0.0.1:${port}`,
+        'Sec-Fetch-Site': 'same-origin',
+      },
+    });
+    assert.equal(sameOrigin.status, 200);
+
+    const crossSiteFetchMetadata = await sendRawRequest(port, {
+      method: 'GET',
+      path: '/api/config/status',
+      headers: { 'Sec-Fetch-Site': 'cross-site' },
+    });
+    assert.equal(crossSiteFetchMetadata.status, 403);
+    assert.equal(crossSiteFetchMetadata.headers['cache-control'], 'no-store');
+    assert.deepEqual(JSON.parse(crossSiteFetchMetadata.body), {
+      error: { message: 'Cross-site API requests are not allowed' },
+    });
+
+    const crossOrigin = await sendRawRequest(port, {
+      method: 'GET',
+      path: '/api/config/status',
+      headers: { Origin: 'https://evil.example' },
+    });
+    assert.equal(crossOrigin.status, 403);
+
+    const opaqueOrigin = await sendRawRequest(port, {
+      method: 'GET',
+      path: '/api/config/status',
+      headers: { Origin: 'null' },
+    });
+    assert.equal(opaqueOrigin.status, 403);
+  } finally {
+    closeChild(proxy);
+    await rm(configDir, { recursive: true, force: true });
+  }
+});
+
 test('static smoke test page is hidden even when parent test routes are enabled', async () => {
   const port = await freePort();
   const configDir = await mkdtemp(join(tmpdir(), 'zhida-config-test-'));
@@ -452,8 +524,14 @@ test('static smoke test page is served when test routes are explicitly enabled',
 
   try {
     await waitForUrl(`http://127.0.0.1:${port}/index.html`);
+    const index = await fetch(`http://127.0.0.1:${port}/index.html`);
+    assert.equal(index.headers.get('x-frame-options'), 'SAMEORIGIN');
+    assert.match(index.headers.get('content-security-policy') ?? '', /frame-ancestors 'self'/);
+
     const smoke = await fetch(`http://127.0.0.1:${port}/tests/smoke.html`);
     assert.equal(smoke.status, 200);
+    assert.match(smoke.headers.get('content-security-policy') ?? '', /script-src 'self' 'unsafe-inline'/);
+    assert.match(smoke.headers.get('content-security-policy') ?? '', /frame-src 'self'/);
     assert.match(await smoke.text(), /Zhida AI Smoke Test/);
   } finally {
     closeChild(proxy);
@@ -622,14 +700,16 @@ test('proxy request logs structured JSON without secrets', async () => {
     assert.match(proxyStart.ts, /^\d{4}-\d{2}-\d{2}T/);
     assert.equal(proxyStart.level, 'info');
     assert.equal(proxyStart.method, 'POST');
-    assert.equal(proxyStart.path, '/v1/chat/completions');
+    assert.equal(proxyStart.path, '/api/chat/completions');
+    assert.equal(proxyStart.upstream_path, '/v1/chat/completions');
 
     const proxyDone = logs.find((entry) => entry.event === 'proxy_done');
     assert.ok(proxyDone);
     assert.match(proxyDone.ts, /^\d{4}-\d{2}-\d{2}T/);
     assert.equal(proxyDone.level, 'info');
     assert.equal(proxyDone.method, 'POST');
-    assert.equal(proxyDone.path, '/v1/chat/completions');
+    assert.equal(proxyDone.path, '/api/chat/completions');
+    assert.equal(proxyDone.upstream_path, '/v1/chat/completions');
     assert.equal(proxyDone.status, 200);
     assert.equal(typeof proxyDone.duration_ms, 'number');
   } finally {
@@ -759,6 +839,58 @@ test('responses proxy uses server-side authorization and forwards cancel request
     assert.equal(responseRequest.authorization, 'Bearer server-secret');
     assert.equal(cancelRequest.authorization, 'Bearer server-secret');
     assert.match(responseRequest.body, /web_search/);
+  } finally {
+    closeChild(proxy);
+    mock.server.close();
+    await rm(configDir, { recursive: true, force: true });
+  }
+});
+
+test('responses proxy rejects disallowed tool payloads before upstream forwarding', async () => {
+  const mock = await startMockApi();
+  const port = await freePort();
+  const configDir = await mkdtemp(join(tmpdir(), 'zhida-config-test-'));
+  const proxy = startProxy({
+    ZHIDA_PORT: String(port),
+    ZHIDA_CONFIG_SECRET: 'test-secret',
+    ZHIDA_CONFIG_PATH: join(configDir, 'config.enc.json'),
+  });
+
+  try {
+    await waitForUrl(`http://127.0.0.1:${port}/index.html`);
+    const saved = await saveConfig(port, `http://127.0.0.1:${mock.port}`);
+    assert.equal(saved.status, 200);
+
+    const response = await fetch(`http://127.0.0.1:${port}/api/responses`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'gpt-test',
+        input: 'hello',
+        stream: true,
+        tools: [{ type: 'mcp', server_label: 'external', server_url: 'https://example.com/mcp' }],
+      }),
+    });
+
+    assert.equal(response.status, 400);
+    assert.match(await response.text(), /Responses 请求包含不支持的工具/);
+    assert.equal(mock.requests.filter((request) => request.url === '/v1/responses').length, 0);
+
+    const invalidReasoning = await fetch(`http://127.0.0.1:${port}/api/responses`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'gpt-5',
+        input: 'hello',
+        stream: true,
+        tools: [{ type: 'web_search' }],
+        reasoning: { effort: 'minimal' },
+      }),
+    });
+
+    assert.equal(invalidReasoning.status, 400);
+    assert.match(await invalidReasoning.text(), /不支持 minimal 推理深度/);
+    assert.equal(mock.requests.filter((request) => request.url === '/v1/responses').length, 0);
   } finally {
     closeChild(proxy);
     mock.server.close();
@@ -946,7 +1078,7 @@ test('responses capability errors are normalized and redacted', async () => {
         'Content-Type': 'application/json',
         Authorization: 'Bearer browser-secret',
       },
-      body: JSON.stringify({ force_responses_unsupported: true }),
+      body: JSON.stringify({ model: 'force-responses-unsupported', input: 'hello', stream: true }),
     });
     assert.equal(responses.status, 400);
     const body = await responses.text();
@@ -1177,19 +1309,21 @@ test('api base url accepts a trailing v1 without duplicating upstream paths', as
   }
 });
 
-test('upstream errors are redacted before returning to the browser', async () => {
+test('upstream errors are redacted before returning to the browser and in logs', async () => {
   const mock = await startMockApi();
   const port = await freePort();
   const configDir = await mkdtemp(join(tmpdir(), 'zhida-config-test-'));
+  const apiKey = 'server-secret-error-log-test';
   const proxy = startProxy({
     ZHIDA_PORT: String(port),
     ZHIDA_CONFIG_SECRET: 'test-secret',
     ZHIDA_CONFIG_PATH: join(configDir, 'config.enc.json'),
   });
+  const getProxyOutput = collectChildOutput(proxy);
 
   try {
     await waitForUrl(`http://127.0.0.1:${port}/index.html`);
-    const saved = await saveConfig(port, `http://127.0.0.1:${mock.port}`);
+    const saved = await saveConfig(port, `http://127.0.0.1:${mock.port}`, apiKey);
     assert.equal(saved.status, 200);
 
     const chat = await fetch(`http://127.0.0.1:${port}/api/chat/completions`, {
@@ -1202,8 +1336,27 @@ test('upstream errors are redacted before returning to the browser', async () =>
     });
     assert.equal(chat.status, 401);
     const body = await chat.text();
-    assert.doesNotMatch(body, /server-secret/);
+    assert.doesNotMatch(body, new RegExp(apiKey));
     assert.match(body, /\[REDACTED\]/);
+
+    await waitForCondition(
+      () => getProxyOutput().stderr.includes('"event":"proxy_error"'),
+      'proxy_error log line',
+      1000
+    );
+
+    const { stdout, stderr } = getProxyOutput();
+    assert.doesNotMatch(`${stdout}\n${stderr}`, new RegExp(apiKey));
+
+    const proxyError = parseJsonLogLines(stderr).find((entry) => entry.event === 'proxy_error');
+    assert.ok(proxyError);
+    assert.equal(proxyError.level, 'error');
+    assert.equal(proxyError.method, 'POST');
+    assert.equal(proxyError.path, '/api/chat/completions');
+    assert.equal(proxyError.upstream_path, '/v1/chat/completions');
+    assert.equal(proxyError.status, 401);
+    assert.match(proxyError.error, /\[REDACTED\]/);
+    assert.doesNotMatch(proxyError.error, new RegExp(apiKey));
   } finally {
     closeChild(proxy);
     mock.server.close();
@@ -1274,5 +1427,54 @@ test('static server only exposes browser app assets and blocks backend internals
     if (createdLocalDataDir) {
       await rm(localDataDir, { recursive: true, force: true });
     }
+  }
+});
+
+test('server sends enterprise security headers and revalidates cacheable static assets', async () => {
+  const port = await freePort();
+  const configDir = await mkdtemp(join(tmpdir(), 'zhida-config-test-'));
+  const proxy = startProxy({
+    ZHIDA_PORT: String(port),
+    ZHIDA_CONFIG_SECRET: 'test-secret',
+    ZHIDA_CONFIG_PATH: join(configDir, 'config.enc.json'),
+  });
+
+  try {
+    await waitForUrl(`http://127.0.0.1:${port}/index.html`);
+
+    const status = await fetch(`http://127.0.0.1:${port}/api/config/status`);
+    assert.equal(status.status, 200);
+    assert.equal(status.headers.get('cache-control'), 'no-store');
+    assert.equal(status.headers.get('x-content-type-options'), 'nosniff');
+    assert.equal(status.headers.get('x-frame-options'), 'DENY');
+    assert.equal(status.headers.get('referrer-policy'), 'strict-origin-when-cross-origin');
+    assert.equal(status.headers.get('cross-origin-opener-policy'), 'same-origin');
+    assert.match(status.headers.get('permissions-policy') ?? '', /camera=\(\)/);
+
+    const index = await fetch(`http://127.0.0.1:${port}/index.html`);
+    assert.equal(index.status, 200);
+    assert.equal(index.headers.get('cache-control'), 'no-store');
+    assert.match(index.headers.get('content-security-policy') ?? '', /default-src 'self'/);
+    assert.match(index.headers.get('content-security-policy') ?? '', /frame-ancestors 'none'/);
+    assert.equal(index.headers.get('x-frame-options'), 'DENY');
+
+    const css = await fetch(`http://127.0.0.1:${port}/css/variables.css`);
+    assert.equal(css.status, 200);
+    assert.equal(css.headers.get('cache-control'), 'public, max-age=300, must-revalidate');
+    assert.equal(css.headers.get('x-content-type-options'), 'nosniff');
+    const etag = css.headers.get('etag');
+    assert.match(etag ?? '', /^W\/"[^"]+"$/);
+    assert.match(css.headers.get('last-modified') ?? '', /^[A-Z][a-z]{2}, /);
+
+    const revalidated = await fetch(`http://127.0.0.1:${port}/css/variables.css`, {
+      headers: { 'If-None-Match': etag },
+    });
+    assert.equal(revalidated.status, 304);
+    assert.equal(revalidated.headers.get('etag'), etag);
+    assert.equal(revalidated.headers.get('cache-control'), 'public, max-age=300, must-revalidate');
+    assert.equal(await revalidated.text(), '');
+  } finally {
+    closeChild(proxy);
+    await rm(configDir, { recursive: true, force: true });
   }
 });

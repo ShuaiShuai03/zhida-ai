@@ -7,7 +7,7 @@
   <meta name="theme-color" content="#2563EB" />
 
   <!-- Content Security Policy -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; img-src 'self' data: https:; font-src 'self' data: https://cdn.jsdelivr.net; connect-src 'self';">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; img-src 'self' data: https:; font-src 'self' data: https://cdn.jsdelivr.net; connect-src 'self'; base-uri 'none'; object-src 'none'; form-action 'self';">
 
   <!-- Open Graph -->
   <meta property="og:title" content="智答 AI" />
@@ -19,11 +19,14 @@
   <!-- Favicon (inline SVG) -->
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32' fill='none'%3E%3Crect width='32' height='32' rx='8' fill='%234F46E5'/%3E%3Cpath d='M8 11C8 9.89543 8.89543 9 10 9H22C23.1046 9 24 9.89543 24 11V19C24 20.1046 23.1046 21 22 21H18L14 25V21H10C8.89543 21 8 20.1046 8 19V11Z' fill='white' fill-opacity='0.9'/%3E%3Ccircle cx='12.5' cy='15' r='1.5' fill='%234F46E5'/%3E%3Ccircle cx='16' cy='15' r='1.5' fill='%234F46E5'/%3E%3Ccircle cx='19.5' cy='15' r='1.5' fill='%234F46E5'/%3E%3C/svg%3E" />
 
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+  <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin />
+
   <!-- KaTeX CSS -->
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" crossorigin="anonymous" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" integrity="sha384-nB0miv6/jRmo5UMMR1wu3Gz6NLsoTkbqJghGIsx//Rlm+ZU03BU6SQNC66uf4l5+" crossorigin="anonymous" />
 
   <!-- highlight.js Theme -->
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css" crossorigin="anonymous" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css" integrity="sha384-wH75j6z1lH97ZOpMOInqhgKzFkAInZPPSPlZpYKYTOqsaizPvhQZmAtLcPKXpLyH" crossorigin="anonymous" />
 
   <!-- App CSS -->
   <link rel="stylesheet" href="css/variables.css" />
@@ -132,10 +135,20 @@
             <label class="reasoning-control" title="当前模型不是深度思考模型，无法设置推理深度">
               <span class="reasoning-control__label">思考深度</span>
               <select id="reasoning-effort-select" aria-label="思考深度">
+                <option value="none">无</option>
+                <option value="minimal">最小</option>
                 <option value="low">低</option>
                 <option value="medium">标准</option>
                 <option value="high">高</option>
                 <option value="xhigh">极高</option>
+              </select>
+            </label>
+            <label class="reasoning-control search-context-control" title="开启网络搜索后可设置搜索范围">
+              <span class="reasoning-control__label">搜索范围</span>
+              <select id="web-search-context-select" aria-label="搜索范围">
+                <option value="low">低</option>
+                <option value="medium">标准</option>
+                <option value="high">高</option>
               </select>
             </label>
           </div>
@@ -225,7 +238,7 @@
           <div class="settings-group">
             <label class="settings-group__label" for="settings-api-base-url">API 地址</label>
             <p id="settings-api-base-url-desc" class="settings-group__desc">OpenAI 兼容接口基础 URL（例如 https://api.openai.com）。浏览器只会提交到同源后端保存。</p>
-            <input type="url" id="settings-api-base-url" placeholder="https://your-api-host.com" autocomplete="off" aria-describedby="settings-api-base-url-desc" />
+            <input type="url" id="settings-api-base-url" placeholder="https://api.example.com/v1" autocomplete="off" aria-describedby="settings-api-base-url-desc" />
           </div>
           <div class="settings-group">
             <label class="settings-group__label" for="settings-api-key">API 密钥</label>
@@ -407,9 +420,9 @@
   </div>
 
   <!-- CDN Libraries -->
-  <script src="https://cdn.jsdelivr.net/npm/marked@14.1.3/marked.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked@14.1.3/marked.min.js" integrity="sha384-k8o8HikHweyzW55Wd3wl18ovJj6vHVYNQeQbeSM0fxx+0WiH4TcccOG9uz8Xd2JR" crossorigin="anonymous"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js" integrity="sha384-F/bZzf7p3Joyp5psL90p/p89AZJsndkSoGwRpXcZhleCWhd8SnRuoYo4d0yirjJp" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js" integrity="sha384-7zkQWkzuo3B5mTepMUcHkMB5jZaolc2xDwL6VFqjFALcbeS9Ggm/Yr2r3Dy4lfFg" crossorigin="anonymous"></script>
 
   <!-- App Entry Point -->
   <script type="module" src="js/app.js"></script>

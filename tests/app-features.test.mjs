@@ -1,7 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { getRequestRouteDecision, normalizeModel, shouldUseResponsesRoute } from '../js/api.js';
+import {
+  buildResponsesRequestBody,
+  getRequestRouteDecision,
+  normalizeModel,
+  shouldUseResponsesRoute,
+} from '../js/api.js';
+import {
+  REASONING_EFFORTS,
+  WEB_SEARCH_CONTEXT_SIZES,
+} from '../js/config.js';
 import {
   buildLongTextPromptBlock,
   createGeneratedMdAttachment,
@@ -37,7 +46,7 @@ test('long text reference mode omits full content and full mode includes it', ()
   assert.match(fullBlock, new RegExp(`alpha ${'x'.repeat(2000)}`));
 });
 
-test('model capabilities follow call_methods and conservative fallback rules', () => {
+test('model capabilities follow call_methods and optimistic fallback rules', () => {
   const chatOnly = normalizeModel({
     id: 'claude-haiku-4-5-20251001',
     owned_by: 'compat',
@@ -57,29 +66,30 @@ test('model capabilities follow call_methods and conservative fallback rules', (
   assert.equal(responsesModel.supportsReasoningEffort, true);
 
   const undeclaredThirdParty = normalizeModel({ id: 'qwen-compatible', owned_by: 'mock' });
-  assert.equal(undeclaredThirdParty.supportsResponses, false);
+  assert.equal(undeclaredThirdParty.supportsResponses, true);
+  assert.equal(undeclaredThirdParty.supportsWebSearch, true);
 
-  const officialOpenAI = normalizeModel(
-    { id: 'gpt-5.5', owned_by: 'openai' },
-    { apiBaseUrl: 'https://api.openai.com' }
-  );
-  assert.equal(officialOpenAI.supportsResponses, true);
-  assert.equal(officialOpenAI.supportsWebSearch, true);
-  assert.equal(officialOpenAI.supportsReasoningEffort, true);
+  const currentOpenAiReasoning = normalizeModel({ id: 'gpt-5.5', owned_by: 'openai' });
+  assert.equal(currentOpenAiReasoning.supportsResponses, true);
+  assert.equal(currentOpenAiReasoning.supportsWebSearch, true);
+  assert.equal(currentOpenAiReasoning.supportsReasoningEffort, true);
 });
 
-test('request routing is capability driven and blocks unsupported web search', () => {
+test('request routing is capability driven and downgrades unsupported web search', () => {
   assert.equal(shouldUseResponsesRoute({
     model: { type: 'standard', supportsWebSearch: false, supportsReasoningEffort: false },
     webSearchEnabled: false,
     reasoningEffort: 'medium',
   }), false);
 
-  assert.deepEqual(getRequestRouteDecision({
+  const downgradedDecision = getRequestRouteDecision({
     model: { type: 'standard', supportsWebSearch: false, supportsReasoningEffort: false },
     webSearchEnabled: true,
     reasoningEffort: 'medium',
-  }).route, 'blocked');
+  });
+  assert.equal(downgradedDecision.route, 'chat');
+  assert.equal(downgradedDecision.downgraded, 'web_search_unavailable');
+  assert.deepEqual(downgradedDecision.requestOptions, {});
 
   const responsesDecision = getRequestRouteDecision({
     model: { type: 'standard', supportsWebSearch: true, supportsReasoningEffort: false },
@@ -90,6 +100,7 @@ test('request routing is capability driven and blocks unsupported web search', (
   assert.deepEqual(responsesDecision.requestOptions, {
     includeWebSearch: true,
     includeReasoning: false,
+    webSearchContextSize: 'medium',
   });
 
   assert.equal(getRequestRouteDecision({
@@ -99,11 +110,58 @@ test('request routing is capability driven and blocks unsupported web search', (
   }).route, 'chat');
 });
 
+test('responses request body carries bounded search context and current reasoning efforts', () => {
+  assert.deepEqual(WEB_SEARCH_CONTEXT_SIZES, ['low', 'medium', 'high']);
+  assert.deepEqual(REASONING_EFFORTS, ['none', 'minimal', 'low', 'medium', 'high', 'xhigh']);
+
+  const body = buildResponsesRequestBody([
+    { role: 'system', content: 'answer briefly' },
+    { role: 'user', content: 'latest policy update' },
+  ], {
+    includeWebSearch: true,
+    includeReasoning: true,
+    webSearchContextSize: 'high',
+  }, {
+    modelId: 'gpt-5.5',
+    model: { supportsReasoningEffort: true },
+    maxTokens: 2048,
+    reasoningEffort: 'minimal',
+  });
+
+  assert.deepEqual(body, {
+    model: 'gpt-5.5',
+    input: [
+      { role: 'system', content: 'answer briefly' },
+      { role: 'user', content: 'latest policy update' },
+    ],
+    stream: true,
+    max_output_tokens: 2048,
+    tools: [{ type: 'web_search', search_context_size: 'high' }],
+    reasoning: { effort: 'minimal' },
+  });
+});
+
+test('responses request body avoids unsupported minimal reasoning with gpt-5 web search', () => {
+  const body = buildResponsesRequestBody([
+    { role: 'user', content: 'search with reasoning' },
+  ], {
+    includeWebSearch: true,
+    includeReasoning: true,
+  }, {
+    modelId: 'gpt-5',
+    model: { supportsReasoningEffort: true },
+    reasoningEffort: 'minimal',
+  });
+
+  assert.deepEqual(body.reasoning, { effort: 'low' });
+});
+
 test('backup preserves non-sensitive search/reasoning settings and long text metadata', () => {
   const payload = createBackupPayload({
     settings: {
       apiBaseUrl: 'https://api.example.com',
       webSearchEnabled: true,
+      webSearchContextSize: 'high',
       reasoningEffort: 'high',
       apiKey: 'must-not-export',
     },
@@ -119,6 +177,7 @@ test('backup preserves non-sensitive search/reasoning settings and long text met
 
   const parsed = parseBackupPayload(payload);
   assert.equal(parsed.settings.webSearchEnabled, true);
+  assert.equal(parsed.settings.webSearchContextSize, 'high');
   assert.equal(parsed.settings.reasoningEffort, 'high');
   assert.equal(parsed.settings.apiKey, undefined);
   assert.equal(parsed.longTextAttachments[0].content, '# Full text');

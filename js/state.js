@@ -3,12 +3,14 @@
  */
 
 import {
-  MODELS,
   DEFAULT_TEMPERATURE,
   DEFAULT_MAX_TOKENS,
   DEFAULT_SYSTEM_PROMPT,
   DEFAULT_API_BASE_URL,
   DEFAULT_REASONING_EFFORT,
+  DEFAULT_WEB_SEARCH_CONTEXT_SIZE,
+  REASONING_EFFORTS,
+  WEB_SEARCH_CONTEXT_SIZES,
 } from './config.js';
 
 /**
@@ -42,9 +44,9 @@ class AppState {
   /** @type {string|null} */
   #activeConversationId = null;
   /** @type {string} */
-  #selectedModelId = MODELS[0].id;
+  #selectedModelId = '';
   /** @type {Array} */
-  #models = MODELS;
+  #models = [];
   /** @type {boolean} */
   #isStreaming = false;
   /** @type {AbortController|null} */
@@ -71,7 +73,9 @@ class AppState {
   #backendError = '';
   /** @type {boolean} */
   #webSearchEnabled = false;
-  /** @type {'low'|'medium'|'high'|'xhigh'} */
+  /** @type {'low'|'medium'|'high'} */
+  #webSearchContextSize = DEFAULT_WEB_SEARCH_CONTEXT_SIZE;
+  /** @type {'none'|'minimal'|'low'|'medium'|'high'|'xhigh'} */
   #reasoningEffort = DEFAULT_REASONING_EFFORT;
 
   /** @type {Map<string, Set<Function>>} */
@@ -95,6 +99,7 @@ class AppState {
   get backendAvailable() { return this.#backendAvailable; }
   get backendError() { return this.#backendError; }
   get webSearchEnabled() { return this.#webSearchEnabled; }
+  get webSearchContextSize() { return this.#webSearchContextSize; }
   get reasoningEffort() { return this.#reasoningEffort; }
 
   /**
@@ -211,9 +216,15 @@ class AppState {
     this.#notify('settings');
   }
 
+  set webSearchContextSize(value) {
+    this.#webSearchContextSize = WEB_SEARCH_CONTEXT_SIZES.includes(value)
+      ? value
+      : DEFAULT_WEB_SEARCH_CONTEXT_SIZE;
+    this.#notify('settings');
+  }
+
   set reasoningEffort(value) {
-    const allowed = new Set(['low', 'medium', 'high', 'xhigh']);
-    this.#reasoningEffort = allowed.has(value) ? value : DEFAULT_REASONING_EFFORT;
+    this.#reasoningEffort = REASONING_EFFORTS.includes(value) ? value : DEFAULT_REASONING_EFFORT;
     this.#notify('settings');
   }
 

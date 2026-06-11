@@ -1,3 +1,4 @@
+import { REASONING_EFFORTS, WEB_SEARCH_CONTEXT_SIZES } from './config.js';
 import { normalizeTags, sortConversationsByUpdatedAt } from './conversation-utils.js';
 import { normalizeCustomTemplates } from './prompt-templates.js';
 import { generateId } from './utils.js';
@@ -26,7 +27,10 @@ export function normalizeSettings(value = {}) {
     systemPrompt: typeof settings.systemPrompt === 'string' ? settings.systemPrompt : undefined,
     apiBaseUrl: typeof settings.apiBaseUrl === 'string' ? settings.apiBaseUrl : undefined,
     webSearchEnabled: typeof settings.webSearchEnabled === 'boolean' ? settings.webSearchEnabled : undefined,
-    reasoningEffort: ['low', 'medium', 'high', 'xhigh'].includes(settings.reasoningEffort)
+    webSearchContextSize: WEB_SEARCH_CONTEXT_SIZES.includes(settings.webSearchContextSize)
+      ? settings.webSearchContextSize
+      : undefined,
+    reasoningEffort: REASONING_EFFORTS.includes(settings.reasoningEffort)
       ? settings.reasoningEffort
       : undefined,
   };

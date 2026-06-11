@@ -61,6 +61,17 @@ const CONFIG_VERSION = 1;
 const ENCRYPTION_ALGORITHM = 'aes-256-gcm';
 const REQUEST_BODY_TOO_LARGE = 'request_body_too_large';
 const LOG_MESSAGE_MAX_LENGTH = 500;
+const ALLOWED_RESPONSES_FIELDS = new Set([
+  'model',
+  'input',
+  'stream',
+  'max_output_tokens',
+  'tools',
+  'reasoning',
+]);
+const ALLOWED_RESPONSES_TOOL_FIELDS = new Set(['type', 'search_context_size']);
+const ALLOWED_REASONING_EFFORTS = new Set(['none', 'minimal', 'low', 'medium', 'high', 'xhigh']);
+const ALLOWED_WEB_SEARCH_CONTEXT_SIZES = new Set(['low', 'medium', 'high']);
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -75,16 +86,116 @@ const MIME_TYPES = {
   '.txt': 'text/plain; charset=utf-8',
 };
 
+const CONTENT_SECURITY_POLICY = [
+  "default-src 'self'",
+  "script-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com",
+  "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com",
+  "img-src 'self' data: https:",
+  "font-src 'self' data: https://cdn.jsdelivr.net",
+  "connect-src 'self'",
+  "base-uri 'none'",
+  "object-src 'none'",
+  "frame-ancestors 'none'",
+  "form-action 'self'",
+].join('; ');
+
+const TEST_FRAME_CONTENT_SECURITY_POLICY = CONTENT_SECURITY_POLICY.replace(
+  "frame-ancestors 'none'",
+  "frame-ancestors 'self'"
+);
+const SMOKE_TEST_CONTENT_SECURITY_POLICY = [
+  "default-src 'self'",
+  "script-src 'self' 'unsafe-inline'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: https:",
+  "font-src 'self' data:",
+  "connect-src 'self'",
+  "frame-src 'self'",
+  "base-uri 'none'",
+  "object-src 'none'",
+  "frame-ancestors 'none'",
+].join('; ');
+
+const SECURITY_HEADERS = {
+  'Content-Security-Policy': CONTENT_SECURITY_POLICY,
+  'Cross-Origin-Opener-Policy': 'same-origin',
+  'Permissions-Policy': 'camera=(), geolocation=(), microphone=(), payment=(), usb=()',
+  'Referrer-Policy': 'strict-origin-when-cross-origin',
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'DENY',
+};
+
+const TEST_FRAME_SECURITY_HEADERS = {
+  ...SECURITY_HEADERS,
+  'Content-Security-Policy': TEST_FRAME_CONTENT_SECURITY_POLICY,
+  'X-Frame-Options': 'SAMEORIGIN',
+};
+
+const SMOKE_TEST_SECURITY_HEADERS = {
+  ...SECURITY_HEADERS,
+  'Content-Security-Policy': SMOKE_TEST_CONTENT_SECURITY_POLICY,
+};
+
+const NO_STORE_CACHE_CONTROL = 'no-store';
+const STATIC_ASSET_CACHE_CONTROL = 'public, max-age=300, must-revalidate';
+
+function withSecurityHeaders(headers = {}, securityHeaders = SECURITY_HEADERS) {
+  return {
+    ...securityHeaders,
+    ...headers,
+  };
+}
+
 function sendJson(res, status, payload) {
-  res.writeHead(status, {
+  res.writeHead(status, withSecurityHeaders({
     'Content-Type': 'application/json; charset=utf-8',
-    'Cache-Control': 'no-store',
-  });
+    'Cache-Control': NO_STORE_CACHE_CONTROL,
+  }));
   res.end(JSON.stringify(payload));
+}
+
+function getFirstHeader(value) {
+  if (Array.isArray(value)) return value[0] ?? '';
+  return value === undefined ? '' : String(value);
 }
 
 function getRequestPath(req) {
   return (req.url || '/').split('?')[0] || '/';
+}
+
+function getOriginHost(origin) {
+  try {
+    return new URL(origin).host.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+function getRequestHost(req) {
+  return getFirstHeader(req.headers.host).split(',')[0].trim().toLowerCase();
+}
+
+function isUntrustedBrowserApiRequest(req) {
+  if (!req.url?.startsWith('/api/')) return false;
+  const fetchSite = getFirstHeader(req.headers['sec-fetch-site']).trim().toLowerCase();
+  if (fetchSite === 'cross-site') return true;
+
+  const origin = getFirstHeader(req.headers.origin).trim();
+  if (!origin) return false;
+  const originHost = getOriginHost(origin);
+  if (!originHost) return true;
+  const requestHost = getRequestHost(req);
+  return !requestHost || originHost !== requestHost;
+}
+
+function rejectUntrustedBrowserApiRequest(req, res) {
+  if (!isUntrustedBrowserApiRequest(req)) return false;
+  logEvent('warn', 'cross_site_api_rejected', {
+    method: req.method,
+    path: getRequestPath(req),
+  });
+  sendError(res, 403, 'Cross-site API requests are not allowed');
+  return true;
 }
 
 function getContentLengthForLog(req) {
@@ -134,12 +245,12 @@ function sendRequestBodyTooLarge(req, res) {
   logBodyLimitRejected(req);
   const socket = req.socket;
   const payload = JSON.stringify({ error: 'Request body too large' });
-  res.writeHead(413, {
+  res.writeHead(413, withSecurityHeaders({
     'Content-Type': 'application/json; charset=utf-8',
-    'Cache-Control': 'no-store',
+    'Cache-Control': NO_STORE_CACHE_CONTROL,
     'Connection': 'close',
     'Content-Length': Buffer.byteLength(payload),
-  });
+  }));
   res.end(payload, () => {
     if (!socket.destroyed) socket.destroy();
   });
@@ -176,7 +287,11 @@ function getEncryptionKey() {
 }
 
 function normalizeApiBaseUrl(value) {
-  const raw = String(value || '').trim();
+  const trimmed = String(value || '').trim();
+  // Accept bare hostnames (e.g. "api.openai.com/v1") by defaulting to https.
+  // Anything that already carries a scheme is left untouched so we can reject
+  // unsupported protocols below rather than silently rewriting them.
+  const raw = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
   let parsed;
   try {
     parsed = new URL(raw);
@@ -330,6 +445,86 @@ function isResponsesUnsupportedError(upstreamPath, status, rawError) {
   if ([404, 405, 501].includes(status)) return true;
   return /call_methods\s+must\s+include\s+responses|does\s+not\s+support\s+(this\s+)?api|responses\s+api|unsupported.*responses|responses.*unsupported|model.*responses/i
     .test(rawError || '');
+}
+
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function validateResponsesProxyPayload(rawBody) {
+  let payload;
+  try {
+    payload = JSON.parse(rawBody || '{}');
+  } catch {
+    return { ok: false, message: 'Responses 请求体必须是合法 JSON' };
+  }
+
+  if (!isPlainObject(payload)) {
+    return { ok: false, message: 'Responses 请求体必须是对象' };
+  }
+
+  for (const key of Object.keys(payload)) {
+    if (!ALLOWED_RESPONSES_FIELDS.has(key)) {
+      return { ok: false, message: 'Responses 请求包含不支持的字段' };
+    }
+  }
+
+  if (typeof payload.model !== 'string' || !payload.model.trim()) {
+    return { ok: false, message: 'Responses 请求缺少模型' };
+  }
+  if (!Object.hasOwn(payload, 'input')) {
+    return { ok: false, message: 'Responses 请求缺少输入' };
+  }
+  if (Object.hasOwn(payload, 'stream') && typeof payload.stream !== 'boolean') {
+    return { ok: false, message: 'Responses stream 必须是布尔值' };
+  }
+  if (Object.hasOwn(payload, 'max_output_tokens')) {
+    const value = payload.max_output_tokens;
+    if (!Number.isInteger(value) || value < 1 || value > Number.MAX_SAFE_INTEGER) {
+      return { ok: false, message: 'Responses 最大输出 token 数无效' };
+    }
+  }
+  if (Object.hasOwn(payload, 'reasoning')) {
+    if (!isPlainObject(payload.reasoning)) {
+      return { ok: false, message: 'Responses 推理参数无效' };
+    }
+    const keys = Object.keys(payload.reasoning);
+    if (keys.length !== 1 || keys[0] !== 'effort' || !ALLOWED_REASONING_EFFORTS.has(payload.reasoning.effort)) {
+      return { ok: false, message: 'Responses 推理深度无效' };
+    }
+  }
+  if (Object.hasOwn(payload, 'tools')) {
+    if (!Array.isArray(payload.tools)) {
+      return { ok: false, message: 'Responses 工具参数无效' };
+    }
+    for (const tool of payload.tools) {
+      if (!isPlainObject(tool) || tool.type !== 'web_search') {
+        return { ok: false, message: 'Responses 请求包含不支持的工具' };
+      }
+      for (const key of Object.keys(tool)) {
+        if (!ALLOWED_RESPONSES_TOOL_FIELDS.has(key)) {
+          return { ok: false, message: 'Responses 网络搜索参数无效' };
+        }
+      }
+      if (
+        Object.hasOwn(tool, 'search_context_size')
+        && !ALLOWED_WEB_SEARCH_CONTEXT_SIZES.has(tool.search_context_size)
+      ) {
+        return { ok: false, message: 'Responses 搜索范围无效' };
+      }
+    }
+  }
+  const hasWebSearch = Array.isArray(payload.tools)
+    && payload.tools.some((tool) => isPlainObject(tool) && tool.type === 'web_search');
+  if (
+    hasWebSearch
+    && payload.reasoning?.effort === 'minimal'
+    && /^gpt-5($|-)/i.test(payload.model)
+  ) {
+    return { ok: false, message: 'Responses gpt-5 网络搜索不支持 minimal 推理深度' };
+  }
+
+  return { ok: true };
 }
 
 function getApiBodyLimit(req) {
@@ -552,7 +747,8 @@ async function handleProxy(req, res, upstreamPath) {
   const durationMs = () => Date.now() - startedAt;
   const proxyLogFields = (fields = {}) => ({
     method: req.method,
-    path: upstreamPath,
+    path: getRequestPath(req),
+    upstream_path: upstreamPath,
     ...fields,
   });
   const logProxyDone = (status) => {
@@ -655,13 +851,24 @@ async function handleProxy(req, res, upstreamPath) {
   try {
     if (req.method === 'POST') {
       try {
-        fetchOptions.body = await readRequestBodyWithLimit(req);
+        const rawBody = await readRequestBodyWithLimit(req);
         refreshTimeout();
+        if (upstreamPath === '/v1/responses') {
+          const validation = validateResponsesProxyPayload(rawBody);
+          if (!validation.ok) {
+            completed = true;
+            sendJson(res, 400, { error: { message: validation.message } });
+            return;
+          }
+        }
+        fetchOptions.body = rawBody;
         upstreamHeaders['Content-Type'] = req.headers['content-type'] || 'application/json';
       } catch (err) {
         if (abortReason === 'client_closed') return;
         completed = true;
-        if (err?.message !== REQUEST_BODY_TOO_LARGE) {
+        if (err?.message === REQUEST_BODY_TOO_LARGE) {
+          logProxyAbort('request_body_too_large');
+        } else {
           logProxyError(err);
         }
         if (handleRequestBodyReadError(req, res, err, '读取请求体失败')) {
@@ -703,10 +910,10 @@ async function handleProxy(req, res, upstreamPath) {
       return;
     }
 
-    const headers = {
-      'Cache-Control': 'no-store',
+    const headers = withSecurityHeaders({
+      'Cache-Control': NO_STORE_CACHE_CONTROL,
       'Content-Type': upstream.headers.get('content-type') || 'application/octet-stream',
-    };
+    });
     if (upstreamPath === '/v1/chat/completions' || upstreamPath.startsWith('/v1/responses')) {
       headers.Connection = 'keep-alive';
       headers['X-Accel-Buffering'] = 'no';
@@ -813,6 +1020,67 @@ function isAllowedStaticPath(pathname) {
     || (ENABLE_TEST_ROUTES && pathname === '/tests/smoke.html');
 }
 
+function isCacheableStaticAsset(filePath) {
+  return extname(filePath).toLowerCase() !== '.html';
+}
+
+function isSmokeTestPage(filePath) {
+  return filePath === join(ROOT_DIR, 'tests/smoke.html');
+}
+
+function getStaticSecurityHeaders(filePath) {
+  if (!ENABLE_TEST_ROUTES) return SECURITY_HEADERS;
+  if (isSmokeTestPage(filePath)) return SMOKE_TEST_SECURITY_HEADERS;
+  return TEST_FRAME_SECURITY_HEADERS;
+}
+
+function createStaticEtag(info) {
+  return `W/"${info.size.toString(16)}-${Math.trunc(info.mtimeMs).toString(16)}"`;
+}
+
+function getStaticCacheHeaders(filePath, info) {
+  const headers = {
+    'Cache-Control': isCacheableStaticAsset(filePath)
+      ? STATIC_ASSET_CACHE_CONTROL
+      : NO_STORE_CACHE_CONTROL,
+  };
+  if (isCacheableStaticAsset(filePath)) {
+    headers.ETag = createStaticEtag(info);
+    headers['Last-Modified'] = info.mtime.toUTCString();
+  }
+  return headers;
+}
+
+function getHeaderValue(headers, name) {
+  const value = headers[name];
+  if (Array.isArray(value)) return value.join(',');
+  return value === undefined ? '' : String(value);
+}
+
+function ifNoneMatchIncludes(headers, etag) {
+  const value = getHeaderValue(headers, 'if-none-match');
+  if (!value) return false;
+  return value.split(',').some((candidate) => {
+    const trimmed = candidate.trim();
+    return trimmed === '*' || trimmed === etag;
+  });
+}
+
+function ifModifiedSinceMatches(headers, info) {
+  const value = getHeaderValue(headers, 'if-modified-since');
+  if (!value) return false;
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) return false;
+  return Math.floor(info.mtimeMs / 1000) * 1000 <= parsed;
+}
+
+function isNotModifiedRequest(req, filePath, etag, info) {
+  if (!isCacheableStaticAsset(filePath)) return false;
+  const ifNoneMatch = getHeaderValue(req.headers, 'if-none-match');
+  if (ifNoneMatch) return ifNoneMatchIncludes(req.headers, etag);
+  return ifModifiedSinceMatches(req.headers, info);
+}
+
 async function handleStatic(req, res) {
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     sendJson(res, 405, { error: { message: 'Method Not Allowed' } });
@@ -836,12 +1104,19 @@ async function handleStatic(req, res) {
   }
 
   const ext = extname(filePath).toLowerCase();
-  res.writeHead(200, {
+  const cacheHeaders = getStaticCacheHeaders(filePath, info);
+  const securityHeaders = getStaticSecurityHeaders(filePath);
+  if (cacheHeaders.ETag && isNotModifiedRequest(req, filePath, cacheHeaders.ETag, info)) {
+    res.writeHead(304, withSecurityHeaders(cacheHeaders, securityHeaders));
+    res.end();
+    return;
+  }
+
+  res.writeHead(200, withSecurityHeaders({
     'Content-Type': MIME_TYPES[ext] || 'application/octet-stream',
     'Content-Length': info.size,
-    'X-Content-Type-Options': 'nosniff',
-    'Referrer-Policy': 'strict-origin-when-cross-origin',
-  });
+    ...cacheHeaders,
+  }, securityHeaders));
 
   if (req.method === 'HEAD') {
     res.end();
@@ -863,6 +1138,9 @@ const server = createServer((req, res) => {
     method: req.method,
     path: getRequestPath(req),
   });
+  if (rejectUntrustedBrowserApiRequest(req, res)) {
+    return;
+  }
   if (rejectOversizedApiRequest(req, res)) {
     return;
   }

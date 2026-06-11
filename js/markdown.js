@@ -21,6 +21,91 @@ function getRenderOptions(options = {}) {
   };
 }
 
+function addProtectedSegment(segments, content) {
+  const key = `%%CODE_SEGMENT_${segments.length}%%`;
+  segments.push({ key, content });
+  return key;
+}
+
+function isFenceClosingLine(line, fenceChar, minLength) {
+  let index = 0;
+  while (index < line.length && (line[index] === ' ' || line[index] === '\t')) {
+    index += 1;
+  }
+  if (index > 3) return false;
+
+  let fenceLength = 0;
+  while (line[index + fenceLength] === fenceChar) {
+    fenceLength += 1;
+  }
+  if (fenceLength < minLength) return false;
+
+  for (let i = index + fenceLength; i < line.length; i += 1) {
+    if (line[i] !== ' ' && line[i] !== '\t') return false;
+  }
+  return true;
+}
+
+function findFenceEnd(text, start, openingLineLength, fence) {
+  const fenceChar = fence[0];
+  let cursor = start + openingLineLength;
+
+  while (cursor < text.length) {
+    const lineEnd = text.indexOf('\n', cursor);
+    const nextCursor = lineEnd === -1 ? text.length : lineEnd + 1;
+    const line = text.slice(cursor, lineEnd === -1 ? text.length : lineEnd);
+    if (isFenceClosingLine(line, fenceChar, fence.length)) {
+      return nextCursor;
+    }
+    cursor = nextCursor;
+  }
+
+  return text.length;
+}
+
+function protectMarkdownCode(text) {
+  const segments = [];
+  const parts = [];
+  let index = 0;
+
+  while (index < text.length) {
+    const remaining = text.slice(index);
+    if (index === 0 || text[index - 1] === '\n') {
+      const fenceMatch = /^(?: {0,3})(`{3,}|~{3,})[^\n]*(?:\n|$)/.exec(remaining);
+      if (fenceMatch) {
+        const end = findFenceEnd(text, index, fenceMatch[0].length, fenceMatch[1]);
+        parts.push(addProtectedSegment(segments, text.slice(index, end)));
+        index = end;
+        continue;
+      }
+    }
+
+    if (text[index] === '`') {
+      const tickMatch = /^`+/.exec(remaining);
+      const ticks = tickMatch?.[0] ?? '`';
+      const end = text.indexOf(ticks, index + ticks.length);
+      if (end !== -1) {
+        parts.push(addProtectedSegment(segments, text.slice(index, end + ticks.length)));
+        index = end + ticks.length;
+        continue;
+      }
+    }
+
+    parts.push(text[index]);
+    index += 1;
+  }
+
+  return { text: parts.join(''), segments };
+}
+
+function restoreProtectedSegments(text, segments) {
+  let restored = text;
+  for (const { key, content } of segments) {
+    restored = restored.split(key).join(content);
+  }
+  return restored;
+}
+
 /**
  * Configure marked.js with custom renderer.
  */
@@ -44,6 +129,7 @@ export function initMarkdown() {
     code({ text, lang }) {
       const language = lang || '';
       const escapedCode = escapeHTML(text);
+      const encodedCode = encodeURIComponent(text);
       let highlighted = escapedCode;
 
       if (activeRenderOptions.highlightCode && typeof hljs !== 'undefined' && language && hljs.getLanguage(language)) {
@@ -59,8 +145,7 @@ export function initMarkdown() {
       return `<div class="code-block">
         <div class="code-block__header">
           <span class="code-block__lang">${escapeHTML(language)}</span>
-          <button class="code-block__copy" data-code="${escapedCode.replace(/"/g, '&quot;')}" aria-label="复制代码">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          <button class="code-block__copy" type="button" data-code="${encodedCode}" aria-label="复制代码">
             <span>复制代码</span>
           </button>
         </div>
@@ -160,8 +245,10 @@ function renderMarkdownInternal(text, options = {}) {
   if (!text) return '';
   const renderOptions = getRenderOptions(options);
 
-  // Extract math first
-  const { text: preprocessed, blocks } = extractMath(text);
+  // Extract math outside Markdown code, then restore code before parsing.
+  const { text: codeProtected, segments } = protectMarkdownCode(text);
+  const { text: mathProtected, blocks } = extractMath(codeProtected);
+  const preprocessed = restoreProtectedSegments(mathProtected, segments);
 
   // Parse markdown
   let html;

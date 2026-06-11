@@ -238,6 +238,17 @@
       return doc;
     }
 
+    async function reloadAppFrame(frame, timeout = 20000) {
+      const previousDoc = frame.contentDocument;
+      frame.contentWindow?.location.reload();
+      await waitFor(
+        () => frame.contentDocument && frame.contentDocument !== previousDoc,
+        'iframe document replaced after reload',
+        timeout
+      );
+      return waitForAppReady(frame, timeout);
+    }
+
     async function waitForFrameReady(frame, timeout = 20000) {
       const frameLabel = `iframe ${frame.id || 'app-frame'}`;
       const targetPath = new URL(frame.src, window.location.href).pathname;
@@ -459,9 +470,78 @@
         fail(`iframe src 应直接指向 /index.html，当前是 ${frameLocation.pathname}`);
       }
 
-      const doc = await waitForAppReady(frame);
-      const win = frame.contentWindow;
+      let doc = await waitForAppReady(frame);
+      let win = frame.contentWindow;
       if (!win) fail('iframe window not accessible');
+
+      const powershellCode = [
+        '$ErrorActionPreference = "Stop"',
+        '$AppId = "abc123"',
+        '$LogPath = "$env:TEMP\\zhida.log"',
+        'Write-Host "App: $AppId"',
+      ].join('\n');
+      const powershellMarkdown = [
+        'Inline code: `$InlineVar = "$AppId"`',
+        '',
+        'Inline math: $x + y$',
+        '',
+        '```powershell',
+        powershellCode,
+        '```',
+      ].join('\n');
+      const regressionConversation = {
+        id: 'markdown-regression',
+        title: 'Markdown regression',
+        modelId: 'smoke-standard',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        pinned: false,
+        tags: [],
+        messages: [{
+          id: 'markdown-regression-ai',
+          role: 'ai',
+          content: powershellMarkdown,
+          timestamp: Date.now(),
+        }],
+      };
+      win.localStorage.setItem('ai_chat_conversations', JSON.stringify([regressionConversation]));
+      win.localStorage.setItem('ai_chat_active_id', JSON.stringify(regressionConversation.id));
+      const regressionDoc = await reloadAppFrame(frame);
+      const markdownProbe = await waitFor(
+        () => regressionDoc.querySelector('.message--ai .message__content'),
+        'PowerShell Markdown regression message rendered'
+      );
+      const codeBlock = requireElement('.code-block', markdownProbe, 'PowerShell Markdown regression');
+      const renderedCodeText = safeText('pre code', codeBlock);
+      if (!renderedCodeText.includes('$AppId') || !renderedCodeText.includes('$LogPath') || !renderedCodeText.includes('$ErrorActionPreference')) {
+        fail('PowerShell fenced code should preserve literal $variables');
+      }
+      const inlineCode = requireElement('p code', markdownProbe, 'PowerShell inline code regression');
+      if (!inlineCode.textContent.includes('$InlineVar') || inlineCode.querySelector('.katex, .math-inline') || inlineCode.innerHTML.includes('%%MATH_INLINE_')) {
+        fail('PowerShell inline code should preserve literal $variables without math rendering');
+      }
+      if (codeBlock.querySelector('.katex, .math-inline') || codeBlock.innerHTML.includes('%%MATH_INLINE_')) {
+        fail('math placeholders and KaTeX should not appear inside fenced code blocks');
+      }
+      const copyButton = requireElement('.code-block__copy', codeBlock, 'PowerShell code copy button');
+      if (!copyButton.dataset.code || decodeURIComponent(copyButton.dataset.code) !== powershellCode) {
+        fail('code copy data should decode to the raw fenced code');
+      }
+      if (copyButton.querySelector('svg, rect, path')) {
+        fail('code copy button should not contain nested SVG markup');
+      }
+      if (!markdownProbe.querySelector('.math-inline .katex')) {
+        fail('inline math outside code should still render with KaTeX');
+      }
+
+      const sanitizedNestedSvg = sanitizeHTML('<div><span>ok</span><svg><g><path d="M0 0"/></g></svg></div>');
+      if (/(<svg|<g|<path|<rect)\b/i.test(sanitizedNestedSvg)) {
+        fail('sanitizer should remove nested SVG markup after unwrapping disallowed elements');
+      }
+      win.localStorage.clear();
+      doc = await reloadAppFrame(frame);
+      win = frame.contentWindow;
+      if (!win) fail('iframe window not accessible after Markdown regression reload');
       win.confirm = () => true;
       win.prompt = () => 'smokeTag';
 

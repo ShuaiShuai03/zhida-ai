@@ -990,9 +990,12 @@ export function initCodeBlockCopy() {
     const codeData = copyBtn.dataset.code;
     if (!codeData) return;
 
-    const textarea = document.createElement('textarea');
-    textarea.innerHTML = codeData;
-    const plainText = textarea.value;
+    let plainText;
+    try {
+      plainText = decodeURIComponent(codeData);
+    } catch {
+      plainText = codeData;
+    }
 
     const success = await copyToClipboard(plainText);
     if (success) {

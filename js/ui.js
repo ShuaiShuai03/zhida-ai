@@ -12,6 +12,95 @@ import { renderMarkdown, renderStreamingMarkdown } from './markdown.js';
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => document.querySelectorAll(sel);
 
+const PROVIDER_RULES = [
+  {
+    slug: 'openai',
+    label: 'OpenAI',
+    shortLabel: 'GPT',
+    pattern: /\b(openai|chatgpt|gpt|o[1345](?:-|$)|text-embedding)\b/i,
+    icon: '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3.2c1.82 0 3.28.88 4.18 2.2 1.53.15 2.95 1.07 3.72 2.53.76 1.44.68 3.08-.06 4.39.55 1.42.36 3.1-.58 4.46-.95 1.37-2.4 2.05-3.89 2.08A4.88 4.88 0 0 1 11.2 21a4.78 4.78 0 0 1-4.17-2.25 4.8 4.8 0 0 1-3.8-2.47 4.87 4.87 0 0 1 .04-4.72 4.82 4.82 0 0 1 .58-4.45 4.9 4.9 0 0 1 3.94-2.12A4.86 4.86 0 0 1 12 3.2Zm-3.4 4.3 3.88-2.25a3.3 3.3 0 0 0-4.9 1.94l1.02.31Zm6.02-.7-3.88 2.24 3.42 1.98 3.9-2.25a3.26 3.26 0 0 0-3.44-1.97Zm-7.95 1.9a3.27 3.27 0 0 0-2.02 4.86V9.08l2.02-.39Zm2.05 7.5v-3.96L5.3 10.26v4.5a3.25 3.25 0 0 0 3.42 1.45Zm1.74 1 3.43-1.98v-3.96l-3.43 1.98v3.96Zm5.17-.1a3.28 3.28 0 0 0 2.03-4.86l-3.88 2.25 1.85 2.61Z" fill="currentColor"/></svg>',
+  },
+  {
+    slug: 'anthropic',
+    label: 'Anthropic',
+    shortLabel: 'Claude',
+    pattern: /\b(anthropic|claude|haiku|sonnet|opus)\b/i,
+    icon: '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M7.2 18 12 5.4 16.8 18h-2.3l-.9-2.6H10.4L9.5 18H7.2Zm3.8-4.5h2l-1-3.1-1 3.1Z" fill="currentColor"/><path d="M16.8 18 12 5.4 19.6 18h-2.8ZM4.4 18 12 5.4 7.2 18H4.4Z" fill="currentColor" opacity=".42"/></svg>',
+  },
+  {
+    slug: 'google',
+    label: 'Google',
+    shortLabel: 'Gemini',
+    pattern: /\b(google|gemini|palm|bison)\b/i,
+    icon: '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12.1 4.5a7.3 7.3 0 0 1 5.05 1.93l-1.9 1.84a4.53 4.53 0 0 0-3.15-1.21 4.86 4.86 0 0 0 0 9.72c2.28 0 3.8-1.24 4.14-3.04h-4.14v-2.47h6.72c.08.43.12.84.12 1.38 0 4.08-2.73 6.7-6.84 6.7a7.43 7.43 0 0 1 0-14.85Z" fill="currentColor"/><path d="M5.05 8.72 7.23 10.3a4.86 4.86 0 0 1 4.87-3.24 4.53 4.53 0 0 1 3.15 1.21l1.9-1.84A7.3 7.3 0 0 0 12.1 4.5a7.43 7.43 0 0 0-7.05 4.22Z" fill="currentColor" opacity=".46"/></svg>',
+  },
+  {
+    slug: 'qwen',
+    label: 'Alibaba Qwen',
+    shortLabel: 'Qwen',
+    pattern: /(qwen|tongyi|dashscope|alibaba|aliyun)/i,
+    icon: '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3.5 20.5 12 12 20.5 3.5 12 12 3.5Zm0 4.15L7.65 12 12 16.35 16.35 12 12 7.65Z" fill="currentColor"/><path d="M12 10.05 13.95 12 12 13.95 10.05 12 12 10.05Z" fill="currentColor" opacity=".45"/></svg>',
+  },
+  {
+    slug: 'deepseek',
+    label: 'DeepSeek',
+    shortLabel: 'DeepSeek',
+    pattern: /\b(deepseek|deep-seek)\b/i,
+    icon: '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 12.4C5 7.8 8.2 4.7 12.7 4.7h4.1v4.1c0 4.5-3.1 7.7-7.7 7.7H7.7v2.8H5v-6.9Zm2.7 1.4h1.4c3 0 5-1.95 5-5V7.4h-1.4c-3.02 0-5 1.98-5 5v1.4Z" fill="currentColor"/><path d="M15.4 14.2 19 17.8 17.2 19.6 13.6 16l1.8-1.8Z" fill="currentColor" opacity=".48"/></svg>',
+  },
+  {
+    slug: 'xai',
+    label: 'xAI',
+    shortLabel: 'Grok',
+    pattern: /\b(xai|grok)\b/i,
+    icon: '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6.1 5h3.15l2.86 4.07L15.05 5h2.85l-4.34 5.92L18.2 19h-3.13l-3.18-4.75L8.45 19H5.6l4.8-6.6L6.1 5Z" fill="currentColor"/></svg>',
+  },
+  {
+    slug: 'llama',
+    label: 'Meta',
+    shortLabel: 'Llama',
+    pattern: /\b(meta|llama)\b/i,
+    icon: '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4.4 15.1c0-3.85 2.02-6.2 4.5-6.2 1.54 0 2.6.86 3.7 2.6 1.06-1.74 2.18-2.6 3.74-2.6 2.33 0 4.06 2.1 4.06 5.3 0 2.92-1.4 4.8-3.36 4.8-1.78 0-3.08-1.24-4.54-3.72C11 17.74 9.7 19 7.98 19 5.84 19 4.4 17.45 4.4 15.1Zm2.2-.05c0 1.08.54 1.72 1.45 1.72 1.03 0 1.82-1.1 3.1-3.14-.9-1.7-1.52-2.45-2.38-2.45-1.18 0-2.17 1.52-2.17 3.87Zm7.8-1.3c1.08 1.98 1.8 3.02 2.7 3.02.7 0 1.13-.8 1.13-2.44 0-1.88-.7-3.15-1.93-3.15-.78 0-1.35.63-1.9 2.57Z" fill="currentColor"/></svg>',
+  },
+];
+
+const FALLBACK_PROVIDER = {
+  slug: 'generic',
+  label: 'AI Provider',
+  shortLabel: 'AI',
+  icon: '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3.6 13.7 8.3 18.4 10 13.7 11.7 12 16.4 10.3 11.7 5.6 10 10.3 8.3 12 3.6Z" fill="currentColor"/><path d="M17.5 14.5 18.35 16.65 20.5 17.5 18.35 18.35 17.5 20.5 16.65 18.35 14.5 17.5 16.65 16.65 17.5 14.5Z" fill="currentColor" opacity=".56"/></svg>',
+};
+
+function getModelIdentity(model) {
+  if (!model) return '';
+  if (typeof model === 'string') return model;
+  return [model.id, model.name, model.description].filter(Boolean).join(' ');
+}
+
+export function getModelProvider(model) {
+  const value = getModelIdentity(model);
+  return PROVIDER_RULES.find((provider) => provider.pattern.test(value)) ?? FALLBACK_PROVIDER;
+}
+
+function getProviderAvatarHTML(model, modifier = '') {
+  const provider = getModelProvider(model);
+  const modifierClass = modifier ? ` provider-avatar--${modifier}` : '';
+  return `<span class="provider-avatar provider-avatar--${provider.slug}${modifierClass}" aria-hidden="true">${provider.icon}</span>`;
+}
+
+function getModelById(modelId) {
+  return state.models.find((model) => model.id === modelId) ?? null;
+}
+
+function getModelCapabilityChips(model) {
+  const chips = [];
+  if (model.badge) chips.push({ label: model.badge, className: model.badgeClass || 'badge--standard' });
+  if (model.supportsResponses) chips.push({ label: 'Responses', className: 'badge--reasoning' });
+  if (model.supportsWebSearch) chips.push({ label: '联网', className: 'badge--fast' });
+  if (model.supportsReasoningEffort) chips.push({ label: '推理', className: 'badge--thinking' });
+  return chips.slice(0, 4);
+}
+
 // ============================================
 // Toast Notifications
 // ============================================
@@ -148,21 +237,60 @@ export function renderModelDropdown() {
 
   list.innerHTML = '';
   const fragment = document.createDocumentFragment();
+  const query = ($('#model-search')?.value || '').trim().toLowerCase();
+  const models = state.models.filter((model) => {
+    if (!query) return true;
+    const provider = getModelProvider(model);
+    return [model.id, model.name, model.description, provider.label, provider.shortLabel]
+      .filter(Boolean)
+      .some((value) => String(value).toLowerCase().includes(query));
+  });
 
-  for (const model of state.models) {
+  if (models.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'model-selector__empty';
+    empty.textContent = state.models.length === 0 ? '暂无可用模型，请先配置 API' : '没有匹配的模型';
+    list.appendChild(empty);
+    return;
+  }
+
+  let previousProviderSlug = '';
+  for (const model of models) {
+    const provider = getModelProvider(model);
+    if (provider.slug !== previousProviderSlug) {
+      const header = document.createElement('div');
+      header.className = 'model-selector__group';
+      header.innerHTML = `
+        ${getProviderAvatarHTML(model, 'group')}
+        <span>${escapeHTML(provider.label)}</span>
+      `;
+      fragment.appendChild(header);
+      previousProviderSlug = provider.slug;
+    }
+
     const item = document.createElement('div');
     item.className = `model-selector__item${model.id === state.selectedModelId ? ' selected' : ''}`;
     item.dataset.modelId = model.id;
+    item.dataset.provider = provider.slug;
     item.setAttribute('role', 'option');
     item.setAttribute('aria-selected', model.id === state.selectedModelId);
+    item.setAttribute('tabindex', model.id === state.selectedModelId ? '0' : '-1');
     item.setAttribute('title', model.description);
 
+    const chips = getModelCapabilityChips(model)
+      .map((chip) => `<span class="model-chip ${escapeHTML(chip.className)}">${escapeHTML(chip.label)}</span>`)
+      .join('');
+
     item.innerHTML = `
+      ${getProviderAvatarHTML(model, 'model')}
       <div class="model-selector__item-info">
-        <div class="model-selector__item-name">${escapeHTML(model.name)}</div>
+        <div class="model-selector__item-heading">
+          <span class="model-selector__item-name">${escapeHTML(model.name)}</span>
+          <span class="model-selector__item-provider">${escapeHTML(provider.shortLabel)}</span>
+        </div>
         <div class="model-selector__item-desc">${escapeHTML(model.description)}</div>
+        <div class="model-selector__item-chips">${chips}</div>
       </div>
-      <span class="badge ${model.badgeClass}">${model.badge}</span>
       <svg class="model-selector__item-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
     `;
 
@@ -180,11 +308,162 @@ export function updateModelTrigger() {
   if (!trigger) return;
 
   const model = state.selectedModel;
+  const provider = getModelProvider(model);
   trigger.innerHTML = `
-    <span class="model-name-text">${escapeHTML(model.name)}</span>
+    ${getProviderAvatarHTML(model, 'trigger')}
+    <span class="model-selector__trigger-copy">
+      <span class="model-name-text">${escapeHTML(model.name)}</span>
+      <span class="model-provider-text">${escapeHTML(provider.label)}</span>
+    </span>
     <span class="badge ${model.badgeClass}">${model.badge}</span>
     <svg class="model-selector__chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
   `;
+  trigger.title = `${model.name} · ${provider.label}`;
+}
+
+function closeCustomSelects(except = null) {
+  $$('.custom-select.open').forEach((customSelect) => {
+    if (customSelect === except) return;
+    customSelect.classList.remove('open');
+    customSelect.querySelector('.custom-select__trigger')?.setAttribute('aria-expanded', 'false');
+  });
+}
+
+function setCustomSelectOpen(customSelect, isOpen) {
+  if (!customSelect) return;
+  if (isOpen) closeCustomSelects(customSelect);
+  customSelect.classList.toggle('open', isOpen);
+  customSelect.querySelector('.custom-select__trigger')?.setAttribute('aria-expanded', String(isOpen));
+}
+
+function syncCustomSelect(select) {
+  const customSelect = select?.parentElement?.querySelector(`.custom-select[data-select-id="${select.id}"]`);
+  if (!select || !customSelect) return;
+
+  const selectedOption = select.selectedOptions?.[0] ?? select.options[0];
+  const triggerText = customSelect.querySelector('.custom-select__value');
+  const trigger = customSelect.querySelector('.custom-select__trigger');
+  const disabled = Boolean(select.disabled);
+
+  if (triggerText) triggerText.textContent = selectedOption?.textContent || '选择';
+  if (trigger) {
+    trigger.disabled = disabled;
+    trigger.setAttribute('aria-disabled', String(disabled));
+  }
+  customSelect.classList.toggle('disabled', disabled);
+  if (disabled) setCustomSelectOpen(customSelect, false);
+
+  customSelect.querySelectorAll('.custom-select__option').forEach((optionEl) => {
+    const selected = optionEl.dataset.value === select.value;
+    optionEl.classList.toggle('selected', selected);
+    optionEl.setAttribute('aria-selected', String(selected));
+    optionEl.tabIndex = selected ? 0 : -1;
+  });
+}
+
+function selectCustomOption(select, value) {
+  if (!select || select.disabled) return;
+  select.value = value;
+  select.dispatchEvent(new Event('change', { bubbles: true }));
+  syncCustomSelect(select);
+}
+
+function focusCustomOption(customSelect, direction) {
+  const options = Array.from(customSelect.querySelectorAll('.custom-select__option'));
+  if (options.length === 0) return;
+  const selectedIndex = Math.max(0, options.findIndex((option) => option.classList.contains('selected')));
+  const activeIndex = options.indexOf(document.activeElement);
+  const baseIndex = activeIndex >= 0 ? activeIndex : selectedIndex;
+  const nextIndex = direction === 'previous'
+    ? Math.max(0, baseIndex - 1)
+    : Math.min(options.length - 1, baseIndex + 1);
+  options[nextIndex]?.focus();
+}
+
+export function initCustomSelectControls(signal) {
+  $$('select[data-custom-select]').forEach((select) => {
+    if (select.dataset.customSelectReady === 'true') return;
+    select.dataset.customSelectReady = 'true';
+    select.classList.add('native-select--enhanced');
+    select.hidden = true;
+    select.tabIndex = -1;
+    select.setAttribute('aria-hidden', 'true');
+
+    const menuId = `${select.id}-custom-list`;
+    const customSelect = document.createElement('div');
+    customSelect.className = 'custom-select';
+    customSelect.dataset.selectId = select.id;
+    customSelect.innerHTML = `
+      <button type="button" class="custom-select__trigger" aria-haspopup="listbox" aria-expanded="false" aria-controls="${menuId}">
+        <span class="custom-select__value"></span>
+        <svg class="custom-select__chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      <div id="${menuId}" class="custom-select__menu" role="listbox" aria-label="${escapeHTML(select.getAttribute('aria-label') || '选择')}">
+        ${Array.from(select.options).map((option) => `
+          <button type="button" class="custom-select__option" role="option" data-value="${escapeHTML(option.value)}">
+            <span class="custom-select__option-label">${escapeHTML(option.textContent || option.value)}</span>
+            <svg class="custom-select__option-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+          </button>
+        `).join('')}
+      </div>
+    `;
+
+    select.insertAdjacentElement('afterend', customSelect);
+    syncCustomSelect(select);
+
+    const trigger = customSelect.querySelector('.custom-select__trigger');
+    const menu = customSelect.querySelector('.custom-select__menu');
+
+    trigger?.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (select.disabled) return;
+      setCustomSelectOpen(customSelect, !customSelect.classList.contains('open'));
+    }, { signal });
+
+    trigger?.addEventListener('keydown', (event) => {
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        if (select.disabled) return;
+        setCustomSelectOpen(customSelect, true);
+        requestAnimationFrame(() => focusCustomOption(customSelect, event.key === 'ArrowUp' ? 'previous' : 'next'));
+      } else if (event.key === 'Escape') {
+        setCustomSelectOpen(customSelect, false);
+      }
+    }, { signal });
+
+    menu?.addEventListener('click', (event) => {
+      const option = event.target.closest('.custom-select__option');
+      if (!option) return;
+      event.preventDefault();
+      selectCustomOption(select, option.dataset.value);
+      setCustomSelectOpen(customSelect, false);
+      trigger?.focus();
+    }, { signal });
+
+    menu?.addEventListener('keydown', (event) => {
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        focusCustomOption(customSelect, 'next');
+      } else if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        focusCustomOption(customSelect, 'previous');
+      } else if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        const option = event.target.closest('.custom-select__option');
+        if (option) selectCustomOption(select, option.dataset.value);
+        setCustomSelectOpen(customSelect, false);
+        trigger?.focus();
+      } else if (event.key === 'Escape') {
+        setCustomSelectOpen(customSelect, false);
+        trigger?.focus();
+      }
+    }, { signal });
+
+    select.addEventListener('change', () => syncCustomSelect(select), { signal });
+  });
+
+  document.addEventListener('click', () => closeCustomSelects(), { signal });
 }
 
 export function updateComposerCapabilityControls() {
@@ -226,6 +505,7 @@ export function updateComposerCapabilityControls() {
       : reasoningSupported
       ? '通过 Responses API 设置推理深度'
       : '当前模型不支持推理深度';
+    syncCustomSelect(reasoningSelect);
   }
   if (reasoningControl) {
     reasoningControl.classList.toggle('disabled', reasoningDisabled);
@@ -246,6 +526,7 @@ export function updateComposerCapabilityControls() {
       : webSearchSupported
       ? '开启网络搜索后可设置搜索范围'
       : '当前模型不支持网络搜索';
+    syncCustomSelect(webSearchContextSelect);
   }
   if (webSearchContextControl) {
     webSearchContextControl.classList.toggle('disabled', searchContextDisabled);
@@ -322,6 +603,7 @@ function renderWelcomeScreen(container) {
         <h1 class="welcome-screen__title">智答 AI</h1>
         <p class="welcome-screen__subtitle">选择模型、配置后端代理，然后从一个清晰的问题开始。</p>
         <div class="welcome-screen__model">
+          ${getProviderAvatarHTML(model, 'welcome')}
           <span class="badge ${model.badgeClass}">${model.badge}</span>
           <span>${escapeHTML(model.name)}</span>
         </div>
@@ -425,6 +707,65 @@ export function updateWelcomeBackendStatus() {
   statusText.textContent = status.message;
 }
 
+function getMessageModel(msg) {
+  if (msg?.modelId) {
+    return getModelById(msg.modelId) ?? {
+      id: msg.modelId,
+      name: msg.modelId,
+      description: '',
+    };
+  }
+
+  const conversationModelId = state.activeConversation?.modelId;
+  if (conversationModelId) {
+    return getModelById(conversationModelId) ?? {
+      id: conversationModelId,
+      name: conversationModelId,
+      description: '',
+    };
+  }
+
+  return state.selectedModel;
+}
+
+function getAssistantAvatarHTML(model) {
+  const provider = getModelProvider(model);
+  return `
+    <div class="message__avatar message__avatar--provider message__avatar--${provider.slug}" aria-hidden="true" title="${escapeHTML(provider.label)}">
+      ${getProviderAvatarHTML(model, 'message')}
+    </div>
+  `;
+}
+
+function getUserMessageDisplayText(msg) {
+  if (Array.isArray(msg?.images) && msg.images.length > 0 && typeof msg.promptText === 'string') {
+    return msg.promptText;
+  }
+  return msg?.content ?? '';
+}
+
+function getSafeMessageImages(images) {
+  return Array.isArray(images)
+    ? images.filter((src) => typeof src === 'string' && src.startsWith('data:image/'))
+    : [];
+}
+
+function renderMessageImageStrip(images) {
+  const safeImages = getSafeMessageImages(images);
+  if (safeImages.length === 0) return '';
+
+  const previewImages = safeImages.slice(0, 4).map((src, index) => `
+    <span class="message-attachment" role="img" aria-label="已上传图片 ${index + 1}">
+      <img src="${escapeHTML(src)}" alt="" loading="lazy" />
+    </span>
+  `).join('');
+  const overflow = safeImages.length > 4
+    ? `<span class="message-attachment message-attachment--overflow">+${safeImages.length - 4}</span>`
+    : '';
+
+  return `<div class="message-attachments" aria-label="已上传图片">${previewImages}${overflow}</div>`;
+}
+
 /**
  * Create a DOM element for a single message.
  * @param {Object} msg
@@ -434,13 +775,15 @@ function createMessageElement(msg) {
   const wrapper = document.createElement('div');
 
   if (msg.role === 'user') {
+    const displayText = getUserMessageDisplayText(msg);
     wrapper.className = 'message message--user';
     wrapper.innerHTML = `
       <div class="message__avatar" aria-hidden="true">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
       </div>
       <div class="message__bubble">
-        <div class="message__text">${escapeHTML(msg.content)}</div>
+        ${displayText ? `<div class="message__text">${escapeHTML(displayText)}</div>` : ''}
+        ${renderMessageImageStrip(msg.images)}
         <div class="message__time">${formatTime(msg.timestamp)}</div>
         <div class="message__actions">
           <button class="message__action-btn" data-action="copy" data-content="" aria-label="复制消息">
@@ -471,6 +814,7 @@ function createMessageElement(msg) {
     // AI message
     wrapper.className = 'message message--ai';
     wrapper.dataset.id = msg.id;
+    const messageModel = getMessageModel(msg);
 
     let thinkingHTML = '';
     if (msg.thinking) {
@@ -491,9 +835,7 @@ function createMessageElement(msg) {
     const renderedContent = renderMarkdown(msg.content);
 
     wrapper.innerHTML = `
-      <div class="message__avatar" aria-hidden="true">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-      </div>
+      ${getAssistantAvatarHTML(messageModel)}
       <div class="message__bubble">
         ${thinkingHTML}
         <div class="message__content">${renderedContent}</div>
@@ -542,9 +884,7 @@ export function createStreamingMessage() {
   wrapper.setAttribute('aria-live', 'polite');
   wrapper.setAttribute('aria-busy', 'true');
   wrapper.innerHTML = `
-    <div class="message__avatar" aria-hidden="true">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-    </div>
+    ${getAssistantAvatarHTML(state.selectedModel)}
     <div class="message__bubble">
       <div class="thinking-block expanded hidden" id="streaming-thinking">
         <button class="thinking-block__toggle" aria-expanded="true" aria-controls="streaming-thinking-content">
@@ -986,7 +1326,6 @@ export function initCodeBlockCopy() {
     const copyBtn = e.target.closest('.code-block__copy');
     if (!copyBtn) return;
 
-    // Decode the escaped HTML content back to plain text
     const codeData = copyBtn.dataset.code;
     if (!codeData) return;
 

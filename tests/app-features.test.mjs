@@ -7,8 +7,11 @@ import {
   normalizeModel,
   shouldUseResponsesRoute,
 } from '../js/api.js';
+import { buildAPIMessages } from '../js/chat.js';
 import {
+  MAX_STORAGE_MB,
   REASONING_EFFORTS,
+  STORAGE_KEYS,
   WEB_SEARCH_CONTEXT_SIZES,
 } from '../js/config.js';
 import {
@@ -19,7 +22,6 @@ import {
   createBackupPayload,
   parseBackupPayload,
 } from '../js/backup-utils.js';
-import { MAX_STORAGE_MB, STORAGE_KEYS } from '../js/config.js';
 import { state } from '../js/state.js';
 import {
   checkStorageSoftLimit,
@@ -146,6 +148,7 @@ test('model capabilities follow call_methods and optimistic fallback rules', () 
     owned_by: 'compat',
     call_methods: ['chat.completions'],
   });
+  assert.equal(chatOnly.supportsChatCompletions, true);
   assert.equal(chatOnly.supportsResponses, false);
   assert.equal(chatOnly.supportsWebSearch, false);
 
@@ -155,11 +158,13 @@ test('model capabilities follow call_methods and optimistic fallback rules', () 
     call_methods: ['responses'],
     supported_parameters: ['reasoning'],
   });
+  assert.equal(responsesModel.supportsChatCompletions, false);
   assert.equal(responsesModel.supportsResponses, true);
   assert.equal(responsesModel.supportsWebSearch, true);
   assert.equal(responsesModel.supportsReasoningEffort, true);
 
   const undeclaredThirdParty = normalizeModel({ id: 'qwen-compatible', owned_by: 'mock' });
+  assert.equal(undeclaredThirdParty.supportsChatCompletions, true);
   assert.equal(undeclaredThirdParty.supportsResponses, true);
   assert.equal(undeclaredThirdParty.supportsWebSearch, true);
 
@@ -193,6 +198,24 @@ test('request routing is capability driven and downgrades unsupported web search
   assert.equal(responsesDecision.route, 'responses');
   assert.deepEqual(responsesDecision.requestOptions, {
     includeWebSearch: true,
+    includeReasoning: false,
+    webSearchContextSize: 'medium',
+  });
+
+  const responsesOnlyDecision = getRequestRouteDecision({
+    model: {
+      type: 'standard',
+      supportsChatCompletions: false,
+      supportsResponses: true,
+      supportsWebSearch: true,
+      supportsReasoningEffort: false,
+    },
+    webSearchEnabled: false,
+    reasoningEffort: 'medium',
+  });
+  assert.equal(responsesOnlyDecision.route, 'responses');
+  assert.deepEqual(responsesOnlyDecision.requestOptions, {
+    includeWebSearch: false,
     includeReasoning: false,
     webSearchContextSize: 'medium',
   });
@@ -250,6 +273,24 @@ test('responses request body avoids unsupported minimal reasoning with gpt-5 web
   assert.deepEqual(body.reasoning, { effort: 'low' });
 });
 
+test('api messages use the current system prompt over a stale conversation prompt', async () => {
+  const previousSystemPrompt = state.systemPrompt;
+  state.systemPrompt = 'current custom prompt';
+  try {
+    const messages = await buildAPIMessages({
+      systemPrompt: 'old conversation prompt',
+      messages: [{ role: 'user', content: 'hello' }],
+    });
+
+    assert.deepEqual(messages.slice(0, 2), [
+      { role: 'system', content: 'current custom prompt' },
+      { role: 'user', content: 'hello' },
+    ]);
+  } finally {
+    state.systemPrompt = previousSystemPrompt;
+  }
+});
+
 test('backup preserves non-sensitive search/reasoning settings and long text metadata', () => {
   const payload = createBackupPayload({
     settings: {
@@ -257,6 +298,7 @@ test('backup preserves non-sensitive search/reasoning settings and long text met
       webSearchEnabled: true,
       webSearchContextSize: 'high',
       reasoningEffort: 'high',
+      displayFont: 'serif',
       apiKey: 'must-not-export',
     },
     conversations: [],
@@ -273,8 +315,15 @@ test('backup preserves non-sensitive search/reasoning settings and long text met
   assert.equal(parsed.settings.webSearchEnabled, true);
   assert.equal(parsed.settings.webSearchContextSize, 'high');
   assert.equal(parsed.settings.reasoningEffort, 'high');
+  assert.equal(parsed.settings.displayFont, 'serif');
   assert.equal(parsed.settings.apiKey, undefined);
   assert.equal(parsed.longTextAttachments[0].content, '# Full text');
+
+  const invalidFontPayload = createBackupPayload({
+    settings: { displayFont: 'remote-font-url' },
+    conversations: [],
+  });
+  assert.equal(invalidFontPayload.settings.displayFont, undefined);
 });
 
 test('conversation save catches localStorage quota errors and keeps memory state', () => {

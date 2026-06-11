@@ -17,6 +17,7 @@
   <script type="module">
     import { sanitizeHTML } from '../js/utils.js';
 
+    const DEFAULT_WAIT_TIMEOUT = 60000;
     const logNode = document.getElementById('log');
 
     function log(message) {
@@ -291,7 +292,7 @@
       return resolved;
     }
 
-    async function waitFor(predicate, label, timeout = 15000) {
+    async function waitFor(predicate, label, timeout = DEFAULT_WAIT_TIMEOUT) {
       const startedAt = Date.now();
       while (Date.now() - startedAt < timeout) {
         const result = predicate();

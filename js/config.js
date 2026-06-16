@@ -19,6 +19,8 @@ export const DEFAULT_REASONING_EFFORT = 'medium';
 export const REASONING_EFFORTS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh'];
 export const DEFAULT_WEB_SEARCH_CONTEXT_SIZE = 'medium';
 export const WEB_SEARCH_CONTEXT_SIZES = ['low', 'medium', 'high'];
+export const DEFAULT_DISPLAY_FONT = 'system';
+export const DISPLAY_FONT_OPTIONS = ['system', 'apple', 'microsoft', 'noto', 'serif', 'mono'];
 
 // ---- Default System Prompt ----
 export const DEFAULT_SYSTEM_PROMPT = '你是一个有用的AI助手。请用简体中文回答所有问题。';

@@ -252,6 +252,7 @@ export async function sendMessage(text, attachments = []) {
   const requestConv = {
     ...conv,
     modelId: state.selectedModelId,
+    systemPrompt: state.systemPrompt,
     title: nextTitle,
     messages: nextMessages,
     updatedAt: Date.now(),
@@ -381,6 +382,7 @@ export async function regenerateLastResponse() {
 
   const requestConv = {
     ...conv,
+    systemPrompt: state.systemPrompt,
     messages: nextMessages,
     updatedAt: Date.now(),
   };
@@ -476,11 +478,11 @@ export async function regenerateLastResponse() {
  * @param {Object} conv
  * @returns {Array<{role: string, content: string|Array}>}
  */
-async function buildAPIMessages(conv) {
+export async function buildAPIMessages(conv) {
   const messages = [];
 
   // System prompt
-  const sysPrompt = conv.systemPrompt || state.systemPrompt || DEFAULT_SYSTEM_PROMPT;
+  const sysPrompt = state.systemPrompt || conv.systemPrompt || DEFAULT_SYSTEM_PROMPT;
   messages.push({ role: 'system', content: sysPrompt });
 
   // Chat history (only user and ai messages)

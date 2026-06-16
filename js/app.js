@@ -6,6 +6,7 @@ import { state } from './state.js';
 import { initTheme, toggleTheme, cleanupTheme } from './theme.js';
 import { initMarkdown } from './markdown.js';
 import {
+  DISPLAY_FONT_OPTIONS,
   FILE_INPUT_ACCEPT,
   LONG_TEXT_AUTO_MD_THRESHOLD,
   SUPPORTED_TEXT_FILE_EXTENSIONS,
@@ -54,6 +55,7 @@ import {
   initCodeBlockCopy,
   initNetworkStatus,
   updateSystemPromptIndicator,
+  initCustomSelectControls,
   updateComposerCapabilityControls,
   updateWelcomeBackendStatus,
   cleanupUI,
@@ -220,6 +222,7 @@ function openSettingsModal() {
   const apiBaseUrlInput = $('#settings-api-base-url');
   const apiKeyInput = $('#settings-api-key');
   const sysPromptInput = $('#settings-system-prompt');
+  const displayFontSelect = $('#settings-display-font');
   const tempSlider = $('#settings-temperature');
   const tempValue = $('#temp-value');
   const maxTokensInput = $('#settings-max-tokens');
@@ -230,6 +233,7 @@ function openSettingsModal() {
     apiKeyInput.type = 'password';
   }
   if (sysPromptInput) sysPromptInput.value = state.systemPrompt;
+  if (displayFontSelect) displayFontSelect.value = state.displayFont;
   if (tempSlider) tempSlider.value = state.temperature;
   if (tempValue) tempValue.textContent = state.temperature.toFixed(1);
   if (maxTokensInput) maxTokensInput.value = state.maxTokens;
@@ -318,6 +322,9 @@ function setModelSelectorOpen(modelSelector, isOpen) {
   modelSelector.classList.toggle('open', isOpen);
   const trigger = modelSelector.querySelector('#model-trigger');
   trigger?.setAttribute('aria-expanded', String(isOpen));
+  if (isOpen) {
+    requestAnimationFrame(() => modelSelector.querySelector('#model-search')?.focus());
+  }
 }
 
 function updateShortcutLabels() {
@@ -325,6 +332,11 @@ function updateShortcutLabels() {
   document.querySelectorAll('[data-shortcut-mod]').forEach((node) => {
     node.textContent = label;
   });
+}
+
+function applyDisplayFontPreference(fontId = state.displayFont) {
+  const nextFont = DISPLAY_FONT_OPTIONS.includes(fontId) ? fontId : 'system';
+  document.documentElement.dataset.displayFont = nextFont;
 }
 
 /**
@@ -460,6 +472,7 @@ async function init() {
   loadCachedModels();
   loadConversations();
   loadSettings();
+  applyDisplayFontPreference();
   loadSelectedModel();
   loadActiveConversationId();
   checkStorageSoftLimit();
@@ -468,6 +481,7 @@ async function init() {
   // Render initial UI
   renderModelDropdown();
   updateModelTrigger();
+  initCustomSelectControls(eventController?.signal);
   updateComposerCapabilityControls();
   renderConversationList();
   renderMessages();
@@ -528,10 +542,12 @@ async function doSend() {
 
 function bindInputEvents() {
   const signal = eventController?.signal;
+  const composer = $('.composer');
   const textarea = $('#chat-input');
   const sendBtn = $('#send-btn');
   const stopBtn = $('#stop-btn');
   const uploadBtn = $('#upload-btn');
+  const expandBtn = $('#composer-expand-btn');
   const inputTemplateBtn = $('#input-template-btn');
   const fileInput = $('#file-input');
   const webSearchToggle = $('#web-search-toggle');
@@ -556,6 +572,18 @@ function bindInputEvents() {
         e.preventDefault();
         doSend();
       }
+    }, { signal });
+  }
+
+  if (expandBtn && composer && textarea) {
+    expandBtn.addEventListener('click', () => {
+      const expanded = !composer.classList.contains('composer--expanded');
+      composer.classList.toggle('composer--expanded', expanded);
+      expandBtn.setAttribute('aria-pressed', String(expanded));
+      expandBtn.setAttribute('aria-label', expanded ? '收起输入框' : '展开输入框');
+      expandBtn.title = expanded ? '收起输入框' : '展开输入框';
+      autoResizeTextarea(textarea);
+      textarea.focus();
     }, { signal });
   }
 
@@ -609,9 +637,9 @@ function bindInputEvents() {
     fileInput.accept = FILE_INPUT_ACCEPT;
     uploadBtn.addEventListener('click', () => fileInput.click(), { signal });
     fileInput.addEventListener('change', () => {
-      handleFileSelection(fileInput.files);
-      fileInput.value = '';
-    }, { signal });
+        handleFileSelection(fileInput.files);
+        fileInput.value = '';
+      }, { signal });
   }
 
   // Drag & drop files onto input area
@@ -628,7 +656,7 @@ function bindInputEvents() {
       e.preventDefault();
       inputArea.classList.remove('drag-over');
       if (e.dataTransfer?.files.length) {
-        handleFileSelection(e.dataTransfer.files);
+        handleFileSelection(e.dataTransfer.files, { source: 'drop' });
       }
     }, { signal });
   }
@@ -853,6 +881,7 @@ function bindHeaderEvents() {
   const modelSelector = $('.model-selector');
   const modelTrigger = $('#model-trigger');
   const modelList = $('#model-list');
+  const modelSearch = $('#model-search');
 
   if (sidebarToggle) {
     sidebarToggle.addEventListener('click', toggleSidebar, { signal });
@@ -884,11 +913,9 @@ function bindHeaderEvents() {
   }
 
   if (modelList) {
-    modelList.addEventListener('click', (e) => {
-      const item = e.target.closest('.model-selector__item');
-      if (!item) return;
-
-      const modelId = item.dataset.modelId;
+    const selectModelItem = (item) => {
+      const modelId = item?.dataset.modelId;
+      if (!modelId) return;
       const previousModelId = state.selectedModelId;
       state.selectedModelId = modelId;
 
@@ -915,6 +942,51 @@ function bindHeaderEvents() {
       renderConversationList();
 
       setModelSelectorOpen(modelSelector, false);
+    };
+
+    modelList.addEventListener('click', (e) => {
+      const item = e.target.closest('.model-selector__item');
+      if (!item) return;
+
+      selectModelItem(item);
+    }, { signal });
+
+    modelList.addEventListener('keydown', (e) => {
+      const current = e.target.closest('.model-selector__item');
+      if (!current) return;
+      const items = Array.from(modelList.querySelectorAll('.model-selector__item'));
+      const index = items.indexOf(current);
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        const nextIndex = e.key === 'ArrowDown'
+          ? Math.min(items.length - 1, index + 1)
+          : Math.max(0, index - 1);
+        items[nextIndex]?.focus();
+      } else if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        selectModelItem(current);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        setModelSelectorOpen(modelSelector, false);
+        modelTrigger?.focus();
+      }
+    }, { signal });
+  }
+
+  if (modelSearch) {
+    modelSearch.addEventListener('click', (e) => e.stopPropagation(), { signal });
+    modelSearch.addEventListener('input', () => renderModelDropdown(), { signal });
+    modelSearch.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        modelSearch.value = '';
+        renderModelDropdown();
+        setModelSelectorOpen(modelSelector, false);
+        modelTrigger?.focus();
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        modelList?.querySelector('.model-selector__item')?.focus();
+      }
     }, { signal });
   }
 
@@ -960,12 +1032,15 @@ function bindModalEvents() {
   if (settingsSaveBtn) {
     settingsSaveBtn.addEventListener('click', async () => {
       const sysPromptInput = $('#settings-system-prompt');
+      const displayFontSelect = $('#settings-display-font');
       const tempSlider = $('#settings-temperature');
       const maxTokensInput = $('#settings-max-tokens');
 
       if (sysPromptInput) state.systemPrompt = sysPromptInput.value;
+      if (displayFontSelect) state.displayFont = displayFontSelect.value;
       if (tempSlider) state.temperature = parseFloat(tempSlider.value);
       if (maxTokensInput) state.maxTokens = parseInt(maxTokensInput.value, 10) || 4096;
+      applyDisplayFontPreference();
 
       if (state.activeConversation) {
         const nextConv = {
@@ -1045,6 +1120,20 @@ function bindModalEvents() {
     }, { signal });
   }
 
+  // Display font applies immediately because it is local-only UI state.
+  const displayFontSelect = $('#settings-display-font');
+  if (displayFontSelect) {
+    displayFontSelect.addEventListener('change', () => {
+      state.displayFont = displayFontSelect.value;
+      applyDisplayFontPreference();
+      if (!saveSettings()) {
+        showToast('显示字体保存失败，请清理本地存储后重试', 'error');
+        return;
+      }
+      showToast('显示字体已更新', 'success', 1600);
+    }, { signal });
+  }
+
   // Temperature slider live update
   const tempSlider = $('#settings-temperature');
   const tempValue = $('#temp-value');
@@ -1082,6 +1171,7 @@ function bindModalEvents() {
         renderModelDropdown();
         updateModelTrigger();
         updateComposerCapabilityControls();
+        applyDisplayFontPreference();
         renderConversationList(getCurrentSearchQuery());
         renderMessages();
         renderPromptTemplates();
@@ -1286,7 +1376,7 @@ function bindPasteHandler() {
       if (item.type.startsWith('image/')) {
         e.preventDefault();
         const file = item.getAsFile();
-        if (file) handleFileSelection([file]);
+        if (file) handleFileSelection([file], { source: 'paste' });
         return;
       }
     }
@@ -1312,9 +1402,13 @@ function bindStorageWarning() {
 /**
  * Process selected files and add to pending attachments.
  * @param {FileList|Array<File>} files
+ * @param {{source?: 'upload'|'drop'|'paste'}} [options]
  */
-function handleFileSelection(files) {
-  for (const file of files) {
+function handleFileSelection(files, options = {}) {
+  const source = options.source || 'upload';
+  let acceptedCount = 0;
+
+  for (const [index, file] of Array.from(files).entries()) {
     const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
     const isImage = file.type.startsWith('image/');
 
@@ -1324,23 +1418,40 @@ function handleFileSelection(files) {
         continue;
       }
       readFileAsDataUrl(file).then((dataUrl) => {
-        pendingAttachments.push({ type: 'image', name: file.name, dataUrl });
+        pendingAttachments.push({
+          type: 'image',
+          name: getAttachmentFileName(file, index),
+          size: file.size,
+          dataUrl,
+        });
         renderAttachmentPreview();
         updateSendButton(canSend());
+        if (source === 'paste') showToast('已粘贴图片到输入框', 'success', 1800);
       });
+      acceptedCount += 1;
     } else if (TEXT_EXTENSIONS.has(ext)) {
       if (file.size > MAX_TEXT_FILE_SIZE) {
         showToast(`文件 ${file.name} 超过 100KB 限制`, 'warning');
         continue;
       }
       readFileAsText(file).then((content) => {
-        pendingAttachments.push({ type: 'text', name: file.name, content });
+        pendingAttachments.push({
+          type: 'text',
+          name: getAttachmentFileName(file, index),
+          size: file.size,
+          content,
+        });
         renderAttachmentPreview();
         updateSendButton(canSend());
       });
+      acceptedCount += 1;
     } else {
       showToast(`不支持的文件类型: .${ext}`, 'warning');
     }
+  }
+
+  if (source === 'drop' && acceptedCount > 0) {
+    showToast(`已添加 ${acceptedCount} 个附件`, 'success', 1800);
   }
 }
 
@@ -1370,6 +1481,31 @@ function readFileAsDataUrl(file) {
     reader.onerror = () => resolve('');
     reader.readAsDataURL(file);
   });
+}
+
+function getAttachmentFileName(file, index) {
+  const name = String(file.name || '').trim();
+  if (name) return name;
+
+  const typeParts = String(file.type || '').split('/');
+  const rawExt = typeParts.length > 1 ? typeParts[1].split(';')[0] : '';
+  const ext = rawExt === 'jpeg' ? 'jpg' : (rawExt || 'bin');
+  const prefix = String(file.type || '').startsWith('image/') ? 'pasted-image' : 'attachment';
+  return `${prefix}-${Date.now()}-${index + 1}.${ext}`;
+}
+
+function formatFileSize(bytes = 0) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function getAttachmentIconHTML(type) {
+  if (type === 'image') {
+    return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="3"/><circle cx="8.5" cy="10" r="1.5"/><path d="m21 15-4.2-4.2a2 2 0 0 0-2.8 0L7 18"/></svg>';
+  }
+  return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M14 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7z"/><path d="M14 2v5h5"/><path d="M8 13h8"/><path d="M8 17h5"/></svg>';
 }
 
 async function addLongTextAttachmentFromContent(content) {
@@ -1405,35 +1541,53 @@ async function downloadLongTextAttachment(att) {
 function renderAttachmentPreview() {
   const container = $('#attachment-preview');
   if (!container) return;
+  const composer = $('.composer');
 
   if (pendingAttachments.length === 0) {
     container.classList.add('hidden');
+    composer?.classList.remove('composer--has-attachments');
     container.innerHTML = '';
     return;
   }
 
   container.classList.remove('hidden');
+  composer?.classList.add('composer--has-attachments');
   container.innerHTML = pendingAttachments.map((att, i) => {
+    const sizeLabel = formatFileSize(att.size);
     if (att.type === 'generated-md') {
       const modeLabel = att.mode === 'full' ? '全文' : '引用';
-      const warning = att.mode === 'full' ? '<span class="attachment-chip__meta">会消耗更多 tokens</span>' : '';
+      const warning = att.mode === 'full' ? '<span class="attachment-chip__meta attachment-chip__meta--warning">会消耗更多 tokens</span>' : '';
       return `
         <div class="attachment-chip attachment-chip--generated">
-          <span class="attachment-chip__icon">📄</span>
-          <span class="attachment-chip__name">${escapeHTML(att.name)}</span>
-          <span class="attachment-chip__meta">${att.charCount} 字</span>
-          ${warning}
-          <button type="button" class="attachment-chip__mode" data-action="toggle-mode" data-index="${i}" aria-label="切换长文本发送模式">模式：${modeLabel}</button>
-          <button type="button" class="attachment-chip__download" data-action="download" data-index="${i}" aria-label="下载 ${escapeHTML(att.name)}">下载</button>
-          <button type="button" class="attachment-chip__remove" data-action="remove" data-index="${i}" aria-label="移除">&times;</button>
+          <span class="attachment-chip__thumb attachment-chip__thumb--icon">${getAttachmentIconHTML('text')}</span>
+          <span class="attachment-chip__body">
+            <span class="attachment-chip__name">${escapeHTML(att.name)}</span>
+            <span class="attachment-chip__meta">${att.charCount} 字${warning ? ' · ' : ''}${warning}</span>
+          </span>
+          <span class="attachment-chip__actions">
+            <button type="button" class="attachment-chip__mode" data-action="toggle-mode" data-index="${i}" aria-label="切换长文本发送模式">${modeLabel}</button>
+            <button type="button" class="attachment-chip__download" data-action="download" data-index="${i}" aria-label="下载 ${escapeHTML(att.name)}">下载</button>
+            <button type="button" class="attachment-chip__remove" data-action="remove" data-index="${i}" aria-label="移除">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+          </span>
         </div>
       `;
     }
+    const thumb = att.type === 'image' && att.dataUrl
+      ? `<img class="attachment-chip__thumb attachment-chip__thumb--image" src="${escapeHTML(att.dataUrl)}" alt="" loading="lazy" />`
+      : `<span class="attachment-chip__thumb attachment-chip__thumb--icon">${getAttachmentIconHTML(att.type)}</span>`;
+    const meta = [att.type === 'image' ? '图片' : '文本', sizeLabel].filter(Boolean).join(' · ');
     return `
       <div class="attachment-chip${att.type === 'image' ? ' attachment-chip--image' : ''}">
-        <span class="attachment-chip__icon">${att.type === 'image' ? '🖼️' : '📄'}</span>
-        <span class="attachment-chip__name">${escapeHTML(att.name)}</span>
-        <button type="button" class="attachment-chip__remove" data-action="remove" data-index="${i}" aria-label="移除">&times;</button>
+        ${thumb}
+        <span class="attachment-chip__body">
+          <span class="attachment-chip__name">${escapeHTML(att.name)}</span>
+          <span class="attachment-chip__meta">${escapeHTML(meta)}</span>
+        </span>
+        <button type="button" class="attachment-chip__remove" data-action="remove" data-index="${i}" aria-label="移除">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
       </div>
     `;
   }).join('');

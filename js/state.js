@@ -9,6 +9,8 @@ import {
   DEFAULT_API_BASE_URL,
   DEFAULT_REASONING_EFFORT,
   DEFAULT_WEB_SEARCH_CONTEXT_SIZE,
+  DEFAULT_DISPLAY_FONT,
+  DISPLAY_FONT_OPTIONS,
   REASONING_EFFORTS,
   WEB_SEARCH_CONTEXT_SIZES,
 } from './config.js';
@@ -77,6 +79,8 @@ class AppState {
   #webSearchContextSize = DEFAULT_WEB_SEARCH_CONTEXT_SIZE;
   /** @type {'none'|'minimal'|'low'|'medium'|'high'|'xhigh'} */
   #reasoningEffort = DEFAULT_REASONING_EFFORT;
+  /** @type {string} */
+  #displayFont = DEFAULT_DISPLAY_FONT;
 
   /** @type {Map<string, Set<Function>>} */
   #listeners = new Map();
@@ -101,6 +105,7 @@ class AppState {
   get webSearchEnabled() { return this.#webSearchEnabled; }
   get webSearchContextSize() { return this.#webSearchContextSize; }
   get reasoningEffort() { return this.#reasoningEffort; }
+  get displayFont() { return this.#displayFont; }
 
   /**
    * Get the currently active conversation object.
@@ -225,6 +230,11 @@ class AppState {
 
   set reasoningEffort(value) {
     this.#reasoningEffort = REASONING_EFFORTS.includes(value) ? value : DEFAULT_REASONING_EFFORT;
+    this.#notify('settings');
+  }
+
+  set displayFont(value) {
+    this.#displayFont = DISPLAY_FONT_OPTIONS.includes(value) ? value : DEFAULT_DISPLAY_FONT;
     this.#notify('settings');
   }
 

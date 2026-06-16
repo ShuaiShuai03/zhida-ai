@@ -1,4 +1,4 @@
-import { REASONING_EFFORTS, WEB_SEARCH_CONTEXT_SIZES } from './config.js';
+import { DISPLAY_FONT_OPTIONS, REASONING_EFFORTS, WEB_SEARCH_CONTEXT_SIZES } from './config.js';
 import { normalizeTags, sortConversationsByUpdatedAt } from './conversation-utils.js';
 import { normalizeCustomTemplates } from './prompt-templates.js';
 import { generateId } from './utils.js';
@@ -32,6 +32,9 @@ export function normalizeSettings(value = {}) {
       : undefined,
     reasoningEffort: REASONING_EFFORTS.includes(settings.reasoningEffort)
       ? settings.reasoningEffort
+      : undefined,
+    displayFont: DISPLAY_FONT_OPTIONS.includes(settings.displayFont)
+      ? settings.displayFont
       : undefined,
   };
 }

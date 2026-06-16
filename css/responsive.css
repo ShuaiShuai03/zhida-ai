@@ -86,14 +86,23 @@
     max-width: none;
   }
 
+  .model-selector {
+    min-width: 0;
+  }
+
   .model-selector__trigger .badge {
     display: none;
   }
 
   .model-selector__dropdown {
-    min-width: 250px;
+    width: min(360px, calc(100vw - var(--space-6)));
+    min-width: min(300px, calc(100vw - var(--space-6)));
     left: auto;
     right: 0;
+  }
+
+  .model-selector__list {
+    max-height: 340px;
   }
 
   .capability-controls {
@@ -109,6 +118,11 @@
     flex: 0 0 auto;
   }
 
+  .custom-select__menu {
+    right: auto;
+    left: 0;
+  }
+
   .chat-messages {
     padding: var(--space-3) var(--space-3);
   }
@@ -117,8 +131,13 @@
     max-width: 88%;
   }
 
+  .message-attachment {
+    width: 72px;
+    height: 54px;
+  }
+
   .message--ai .message__bubble {
-    padding: var(--space-3) var(--space-4);
+    padding: 10px 12px;
   }
 
   .input-area {
@@ -131,15 +150,57 @@
     padding: var(--space-2);
   }
 
+  .composer__field {
+    min-height: 50px;
+    padding: 11px 42px 11px var(--space-3);
+    border-radius: var(--radius-xl);
+  }
+
+  .composer--has-attachments .composer__field {
+    min-height: 104px;
+  }
+
+  .composer--expanded .composer__field {
+    min-height: min(38vh, 280px);
+  }
+
+  .composer--expanded .composer__textarea {
+    min-height: 150px;
+    max-height: min(28vh, 220px);
+  }
+
+  .composer__field-action {
+    top: var(--space-2);
+    right: var(--space-2);
+  }
+
   .composer__footer {
-    align-items: stretch;
-    min-height: 46px;
+    align-items: center;
+    min-height: 38px;
   }
 
   .composer__left-tools,
   .composer__right-tools {
     width: auto;
     justify-content: space-between;
+  }
+
+  .send-btn {
+    min-width: 38px;
+    width: 38px;
+    padding: 0;
+  }
+
+  .send-btn__label {
+    display: none;
+  }
+
+  .attachment-preview {
+    padding-right: 34px;
+  }
+
+  .attachment-chip {
+    max-width: 100%;
   }
 
   .reasoning-control__label,
@@ -225,6 +286,11 @@
     display: inline-block;
   }
 
+  .model-provider-text,
+  .provider-avatar--trigger {
+    display: none;
+  }
+
   .header__right {
     gap: var(--space-1);
   }
@@ -236,7 +302,8 @@
 
   .send-btn,
   .stop-btn {
-    min-height: 40px;
+    min-height: 38px;
+    height: 38px;
     font-size: var(--font-size-xs);
   }
 

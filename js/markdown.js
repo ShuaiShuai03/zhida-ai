@@ -14,6 +14,24 @@ const DEFAULT_RENDER_OPTIONS = Object.freeze({
 });
 let activeRenderOptions = DEFAULT_RENDER_OPTIONS;
 
+function normalizeMarkdownText(value) {
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) {
+    return value
+      .map((part) => {
+        if (typeof part === 'string') return part;
+        if (part && typeof part === 'object') {
+          if (typeof part.text === 'string') return part.text;
+          if (typeof part.content === 'string') return part.content;
+        }
+        return '';
+      })
+      .filter(Boolean)
+      .join('\n');
+  }
+  return value == null ? '' : String(value);
+}
+
 function getRenderOptions(options = {}) {
   return {
     ...DEFAULT_RENDER_OPTIONS,
@@ -242,11 +260,12 @@ function restoreMath(html, blocks, options = {}) {
  * @returns {string} Safe HTML
  */
 function renderMarkdownInternal(text, options = {}) {
-  if (!text) return '';
+  const source = normalizeMarkdownText(text);
+  if (!source) return '';
   const renderOptions = getRenderOptions(options);
 
   // Extract math outside Markdown code, then restore code before parsing.
-  const { text: codeProtected, segments } = protectMarkdownCode(text);
+  const { text: codeProtected, segments } = protectMarkdownCode(source);
   const { text: mathProtected, blocks } = extractMath(codeProtected);
   const preprocessed = restoreProtectedSegments(mathProtected, segments);
 
@@ -285,11 +304,12 @@ export function renderMarkdown(text) {
  * @returns {string}
  */
 export function renderStreamingMarkdown(text) {
-  if (!text) return '';
+  const source = normalizeMarkdownText(text);
+  if (!source) return '';
 
   // Close any unclosed code fences for rendering
-  const fenceCount = (text.match(/```/g) || []).length;
-  let processed = text;
+  const fenceCount = (source.match(/```/g) || []).length;
+  let processed = source;
   if (fenceCount % 2 !== 0) {
     processed += '\n```';
   }

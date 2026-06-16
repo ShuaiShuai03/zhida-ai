@@ -20,10 +20,10 @@
   /* ---- Border Radius ---- */
   --radius-xs: 4px;
   --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 16px;
-  --radius-xl: 20px;
-  --radius-2xl: 24px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+  --radius-2xl: 18px;
   --radius-full: 9999px;
 
   /* ---- Typography ---- */
@@ -54,7 +54,7 @@
   --control-ring-size: 2px;
 
   /* ---- Sidebar ---- */
-  --sidebar-width: 296px;
+  --sidebar-width: 312px;
 
   /* ---- Z-Index Scale ---- */
   --z-sidebar: 100;
@@ -78,6 +78,36 @@
   --shadow-interactive-soft: 0 8px 20px rgba(37, 99, 235, 0.16);
 }
 
+html[data-display-font='system'] {
+  --font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+    'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+}
+
+html[data-display-font='apple'] {
+  --font-family: 'SF Pro Text', 'PingFang SC', -apple-system, BlinkMacSystemFont,
+    'Helvetica Neue', sans-serif;
+}
+
+html[data-display-font='microsoft'] {
+  --font-family: 'Microsoft YaHei UI', 'Microsoft YaHei', 'Segoe UI',
+    Arial, sans-serif;
+}
+
+html[data-display-font='noto'] {
+  --font-family: 'Noto Sans SC', 'Source Han Sans SC', 'PingFang SC',
+    'Microsoft YaHei', sans-serif;
+}
+
+html[data-display-font='serif'] {
+  --font-family: 'Songti SC', 'SimSun', 'Noto Serif CJK SC',
+    'Source Han Serif SC', serif;
+}
+
+html[data-display-font='mono'] {
+  --font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', 'Consolas',
+    'Microsoft YaHei UI', monospace;
+}
+
 /* ============================================
    Light Theme (Default)
    ============================================ */
@@ -93,7 +123,7 @@
   --color-input-focus-ring: rgba(37, 99, 235, 0.22);
 
   /* ---- Neutral ---- */
-  --color-bg: #F6F8FB;
+  --color-bg: #F7F8FB;
   --color-bg-elevated: #FFFFFF;
   --color-bg-secondary: #F1F3F5;
   --color-bg-tertiary: #E9ECEF;
@@ -117,13 +147,13 @@
   --color-divider-subtle: #F3F4F6;
 
   /* ---- Sidebar ---- */
-  --color-sidebar-bg: #FBFCFE;
-  --color-sidebar-hover: #F1F5F9;
+  --color-sidebar-bg: #F8FAFC;
+  --color-sidebar-hover: #EEF3F8;
   --color-sidebar-active: #EAF2FF;
   --color-sidebar-border: #E5E7EB;
 
   /* ---- Header ---- */
-  --color-header-bg: rgba(255, 255, 255, 0.88);
+  --color-header-bg: rgba(255, 255, 255, 0.92);
   --color-header-blur: saturate(180%) blur(20px);
 
   /* ---- Chat ---- */

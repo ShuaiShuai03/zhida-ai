@@ -629,6 +629,7 @@ export function renderMessages() {
   const conv = state.activeConversation;
   if (!conv || conv.messages.length === 0) {
     renderWelcomeScreen(container);
+    resetChatScrollToTop();
     return;
   }
 
@@ -642,8 +643,7 @@ export function renderMessages() {
   container.innerHTML = '';
   container.appendChild(fragment);
 
-  // Scroll to bottom
-  requestAnimationFrame(() => scrollToBottom(true));
+  requestAnimationFrame(scrollRenderedMessagesIntoView);
 }
 
 /**
@@ -1198,15 +1198,57 @@ export function replaceStreamingMessage(streamingEl, msg) {
 let userHasScrolledUp = false;
 let scrollController = null;
 
+function getChatScrollContainer() {
+  return $('#chat-messages');
+}
+
+function isWelcomeScreenRendered() {
+  return Boolean($('#chat-messages-inner')?.querySelector('.welcome-screen'));
+}
+
+function hasScrollableMessages(container) {
+  return container.scrollHeight > container.clientHeight + 1;
+}
+
+function resetChatScrollToTop() {
+  const container = getChatScrollContainer();
+  userHasScrolledUp = false;
+  if (!container) return;
+
+  container.scrollTop = 0;
+  requestAnimationFrame(() => {
+    container.scrollTop = 0;
+    userHasScrolledUp = false;
+  });
+}
+
+function scrollRenderedMessagesIntoView() {
+  const container = getChatScrollContainer();
+  userHasScrolledUp = false;
+  if (!container) return;
+
+  if (hasScrollableMessages(container)) {
+    scrollToBottom(true);
+    return;
+  }
+
+  container.scrollTop = 0;
+}
+
 /**
  * Set up scroll tracking on the chat messages container.
  */
 export function initScrollTracking() {
-  const container = $('#chat-messages');
+  const container = getChatScrollContainer();
   if (!container) return;
 
   scrollController = new AbortController();
   container.addEventListener('scroll', () => {
+    if (isWelcomeScreenRendered()) {
+      userHasScrolledUp = false;
+      return;
+    }
+
     const { scrollTop, scrollHeight, clientHeight } = container;
     userHasScrolledUp = scrollHeight - scrollTop - clientHeight > 100;
   }, { passive: true, signal: scrollController.signal });
@@ -1217,10 +1259,16 @@ export function initScrollTracking() {
  * @param {boolean} [force=false] - Force scroll even if user has scrolled up
  */
 export function scrollToBottom(force = false) {
-  const container = $('#chat-messages');
+  const container = getChatScrollContainer();
   if (!container) return;
+  if (!hasScrollableMessages(container)) {
+    userHasScrolledUp = false;
+    container.scrollTop = 0;
+    return;
+  }
   if (!force && userHasScrolledUp) return;
   container.scrollTop = container.scrollHeight;
+  userHasScrolledUp = false;
 }
 
 /**

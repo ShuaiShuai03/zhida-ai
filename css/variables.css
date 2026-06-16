@@ -81,8 +81,8 @@
 
   /* ---- Warm Composer ---- */
   --composer-page-bg:
-    radial-gradient(circle at 18% 10%, rgba(178, 109, 70, 0.2), transparent 34%),
-    linear-gradient(145deg, #2a1f18 0%, #1f1b16 42%, #efe5d8 150%);
+    radial-gradient(circle at 18% 10%, rgba(178, 109, 70, 0.08), transparent 34%),
+    var(--color-bg);
   --composer-paper-bg: #fffaf3;
   --composer-paper-bg-soft: #f8f0e5;
   --composer-paper-bg-muted: #f4eadc;

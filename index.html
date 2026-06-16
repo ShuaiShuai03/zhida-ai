@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="zh-CN" data-theme="light">
+<html lang="zh-CN" data-theme="dark">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="description" content="智答 AI — 你的智能 AI 助手，支持多模型切换、深度思考、实时流式对话。" />
-  <meta name="theme-color" content="#2563EB" />
+  <meta name="theme-color" content="#1F1B16" />
 
   <!-- Content Security Policy -->
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; img-src 'self' data: https:; font-src 'self' data: https://cdn.jsdelivr.net; connect-src 'self'; base-uri 'none'; object-src 'none'; form-action 'self';">
@@ -17,7 +17,7 @@
   <title>智答 AI — 智能对话助手</title>
 
   <!-- Favicon (inline SVG) -->
-  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32' fill='none'%3E%3Crect width='32' height='32' rx='8' fill='%234F46E5'/%3E%3Cpath d='M8 11C8 9.89543 8.89543 9 10 9H22C23.1046 9 24 9.89543 24 11V19C24 20.1046 23.1046 21 22 21H18L14 25V21H10C8.89543 21 8 20.1046 8 19V11Z' fill='white' fill-opacity='0.9'/%3E%3Ccircle cx='12.5' cy='15' r='1.5' fill='%234F46E5'/%3E%3Ccircle cx='16' cy='15' r='1.5' fill='%234F46E5'/%3E%3Ccircle cx='19.5' cy='15' r='1.5' fill='%234F46E5'/%3E%3C/svg%3E" />
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32' fill='none'%3E%3Crect width='32' height='32' rx='8' fill='%238A4F35'/%3E%3Cpath d='M8 11C8 9.89543 8.89543 9 10 9H22C23.1046 9 24 9.89543 24 11V19C24 20.1046 23.1046 21 22 21H18L14 25V21H10C8.89543 21 8 20.1046 8 19V11Z' fill='white' fill-opacity='0.9'/%3E%3Ccircle cx='12.5' cy='15' r='1.5' fill='%238A4F35'/%3E%3Ccircle cx='16' cy='15' r='1.5' fill='%238A4F35'/%3E%3Ccircle cx='19.5' cy='15' r='1.5' fill='%238A4F35'/%3E%3C/svg%3E" />
 
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
   <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin />
@@ -114,6 +114,11 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
           </button>
 
+          <div class="header__workspace" aria-label="当前工作区">
+            <span class="header__eyebrow">AI 工作台</span>
+            <span class="header__title">智答 AI</span>
+          </div>
+
           <!-- Model Selector -->
           <div class="model-selector">
             <button id="model-trigger" class="model-selector__trigger" aria-haspopup="listbox" aria-expanded="false" aria-controls="model-list" aria-label="选择模型">
@@ -126,7 +131,55 @@
             </div>
           </div>
 
-          <div class="capability-controls" aria-label="模型能力">
+          <div id="header-connection-status" class="header-status header-status--checking" aria-live="polite">
+            <span class="header-status__dot" aria-hidden="true"></span>
+            <span id="header-connection-status-text">检测后端</span>
+          </div>
+        </div>
+
+        <div class="header__right">
+          <button id="runtime-settings-btn" class="runtime-settings-trigger" type="button" aria-controls="runtime-settings-panel" aria-expanded="false">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 21v-7"/><path d="M4 10V3"/><path d="M12 21v-9"/><path d="M12 8V3"/><path d="M20 21v-5"/><path d="M20 12V3"/><path d="M2 14h4"/><path d="M10 8h4"/><path d="M18 16h4"/></svg>
+            <span>运行设置</span>
+          </button>
+          <button id="settings-btn" class="header__action-btn" data-tooltip="设置" aria-label="设置">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          </button>
+          <button id="theme-toggle" class="header__action-btn" data-tooltip="深色模式" aria-label="切换主题">
+            <!-- Icon rendered by theme.js -->
+          </button>
+        </div>
+      </header>
+
+      <div class="runtime-backdrop" data-runtime-close aria-hidden="true"></div>
+      <aside id="runtime-settings-panel" class="runtime-panel" role="dialog" aria-modal="false" aria-hidden="true" aria-labelledby="runtime-settings-title">
+        <div class="runtime-panel__header">
+          <div>
+            <p class="runtime-panel__eyebrow">当前会话</p>
+            <h2 id="runtime-settings-title" class="runtime-panel__title">运行设置</h2>
+          </div>
+          <button type="button" id="runtime-settings-close-btn" class="runtime-panel__close" aria-label="关闭运行设置">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+        <div class="runtime-panel__body">
+          <section class="runtime-section" aria-labelledby="runtime-model-title">
+            <div class="runtime-section__heading">
+              <h3 id="runtime-model-title">模型摘要</h3>
+              <span id="runtime-model-capability" class="runtime-section__meta">检测能力</span>
+            </div>
+            <div id="runtime-model-summary" class="runtime-summary">
+              <span class="runtime-summary__name">模型不可用</span>
+              <span class="runtime-summary__desc">请选择可用模型后开始对话。</span>
+            </div>
+          </section>
+
+          <section class="runtime-section" aria-labelledby="runtime-capability-title">
+            <div class="runtime-section__heading">
+              <h3 id="runtime-capability-title">联网与推理</h3>
+              <span class="runtime-section__meta">仅影响当前请求</span>
+            </div>
+            <div class="capability-controls" aria-label="运行能力">
             <label class="tool-toggle" title="使用 OpenAI Responses API 的网络搜索工具">
               <input type="checkbox" id="web-search-toggle" />
               <span class="tool-toggle__track" aria-hidden="true"></span>
@@ -151,18 +204,22 @@
                 <option value="high">高</option>
               </select>
             </label>
-          </div>
-        </div>
+            </div>
+          </section>
 
-        <div class="header__right">
-          <button id="settings-btn" class="header__action-btn" data-tooltip="设置" aria-label="设置">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-          </button>
-          <button id="theme-toggle" class="header__action-btn" data-tooltip="深色模式" aria-label="切换主题">
-            <!-- Icon rendered by theme.js -->
-          </button>
-        </div>
-      </header>
+          <section class="runtime-section" aria-labelledby="runtime-generation-title">
+            <div class="runtime-section__heading">
+              <h3 id="runtime-generation-title">生成风格</h3>
+              <span id="runtime-temperature-value" class="runtime-section__meta">0.7</span>
+            </div>
+            <label class="runtime-field" for="runtime-temperature">
+              <span>温度</span>
+              <span id="runtime-temperature-desc">数值越低越稳定，越高越发散。</span>
+            </label>
+            <input type="range" id="runtime-temperature" min="0" max="2" step="0.1" value="0.7" aria-describedby="runtime-temperature-desc" />
+          </section>
+          </div>
+      </aside>
 
       <!-- Chat Area -->
       <section class="chat-area" aria-label="对话区域" aria-busy="false">
@@ -174,47 +231,71 @@
 
         <!-- Input Area -->
         <div class="input-area">
-          <div class="input-area__inner">
-            <div class="composer">
-              <div id="attachment-preview" class="attachment-preview hidden"></div>
-              <textarea
-                id="chat-input"
-                class="composer__textarea"
-                placeholder="输入你的问题..."
-                rows="1"
-                aria-label="输入消息"
-              ></textarea>
-              <div class="composer__footer">
-                <div class="composer__left-tools" aria-label="输入工具">
-                  <button type="button" class="system-prompt-indicator" aria-label="自定义系统提示词已启用">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
-                    <span>自定义提示词</span>
-                  </button>
-                  <button id="input-template-btn" class="upload-btn" aria-label="打开提示词模板" title="提示词模板">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M8.5 14a6 6 0 1 1 7 0c-.75.56-1.5 1.5-1.5 2.5h-4c0-1-.75-1.94-1.5-2.5z"/></svg>
-                  </button>
-                  <button id="upload-btn" class="upload-btn" aria-label="上传文件" title="上传文件">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
-                  </button>
-                  <input type="file" id="file-input" multiple hidden />
-                </div>
-                <div class="composer__right-tools" aria-label="发送控制">
-                  <button id="stop-btn" class="stop-btn hidden" aria-label="停止生成" aria-hidden="true">
-                    <span class="stop-btn__label">停止生成</span>
-                    <span class="stop-btn__icon" aria-hidden="true">
-                      <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
-                    </span>
-                  </button>
-                  <button id="send-btn" class="send-btn" disabled aria-disabled="true" aria-label="发送消息">
-                    <span class="send-btn__icon" aria-hidden="true">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
-                    </span>
-                  </button>
+          <div class="input-area__inner composer-wrap">
+            <div class="status-bar">
+              <div class="status-bar__left">
+                <span id="composer-status-dot" class="dot" aria-hidden="true"></span>
+                <span id="composer-status-text">准备就绪，可以输入问题</span>
+              </div>
+              <div class="status-bar__right">
+                <span id="composer-model-pill" class="model-pill">智答默认 · 联网按运行设置</span>
+              </div>
+            </div>
+
+            <form id="composer" class="composer" aria-label="智答 AI 输入框">
+              <div class="composer-main">
+                <div id="attachment-preview" class="attachments attachment-preview hidden" aria-label="待发送附件"></div>
+                <label class="sr-only" for="chat-input">输入消息</label>
+                <textarea
+                  id="chat-input"
+                  class="composer__textarea"
+                  placeholder="询问、粘贴文本，或拖入文件让智答 AI 处理..."
+                  rows="2"
+                  aria-describedby="composer-support-status composer-status"
+                ></textarea>
+                <div class="composer-footer composer__footer">
+                  <div class="tool-row composer__left-tools" aria-label="输入工具">
+                    <button type="button" class="system-prompt-indicator chip" aria-label="自定义系统提示词已启用">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+                      <span>系统提示词</span>
+                    </button>
+                    <button type="button" id="input-template-btn" class="icon-btn upload-btn" aria-label="打开提示词模板" title="提示词模板">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M8.5 14a6 6 0 1 1 7 0c-.75.56-1.5 1.5-1.5 2.5h-4c0-1-.75-1.94-1.5-2.5z"/></svg>
+                    </button>
+                    <button type="button" id="upload-btn" class="icon-btn upload-btn" aria-label="上传文件" title="上传文件">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+                    </button>
+                    <input type="file" id="file-input" multiple hidden />
+                  </div>
+                  <div class="tool-row composer__right-tools" aria-label="运行状态">
+                    <span id="composer-mode-chip" class="chip">标准对话</span>
+                    <span id="composer-token-chip" class="chip">可添加附件</span>
+                  </div>
                 </div>
               </div>
-              <div id="composer-status" class="sr-only" aria-live="polite"></div>
-              <div class="composer__hint">Enter 发送，Shift+Enter 换行</div>
+
+              <div class="composer-action">
+                <button id="send-btn" type="submit" class="action-btn send-btn" disabled aria-disabled="true" aria-label="发送消息">
+                  <span class="send-btn__icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
+                  </span>
+                  <span class="send-btn__label">发送</span>
+                </button>
+                <button id="stop-btn" type="button" class="action-btn stop-btn is-stop hidden" aria-label="停止生成" aria-hidden="true">
+                  <span class="stop-btn__icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+                  </span>
+                  <span class="stop-btn__label">停止</span>
+                </button>
+              </div>
+              <div class="progress" aria-hidden="true"></div>
+            </form>
+
+            <div class="support-line">
+              <span><span class="kbd">回车</span> 发送，<span class="kbd">Shift + 回车</span> 换行</span>
+              <span id="composer-support-status" aria-live="polite">默认状态：输入框可编辑，发送按钮可用。</span>
             </div>
+            <div id="composer-status" class="sr-only" aria-live="polite"></div>
           </div>
         </div>
       </section>
@@ -233,58 +314,84 @@
         </button>
       </div>
       <div class="modal__body">
-        <div class="settings-form">
-          <!-- API Configuration -->
-          <div class="settings-group">
-            <label class="settings-group__label" for="settings-api-base-url">API 地址</label>
-            <p id="settings-api-base-url-desc" class="settings-group__desc">OpenAI 兼容接口基础 URL（例如 https://api.openai.com）。浏览器只会提交到同源后端保存。</p>
-            <input type="url" id="settings-api-base-url" placeholder="https://api.example.com/v1" autocomplete="off" aria-describedby="settings-api-base-url-desc" />
+        <div class="settings-form settings-form--grouped">
+          <div id="settings-config-error-card" class="settings-error-card" role="alert" hidden>
+            <strong>连接配置需要处理</strong>
+            <p id="settings-config-error-message">后端或 API 配置暂不可用，请检查配置后重试。</p>
+            <div class="settings-error-card__actions">
+              <button type="button" id="settings-retry-connection-btn" class="btn btn--secondary">重试连接</button>
+              <button type="button" id="settings-check-config-btn" class="btn btn--ghost">检查配置</button>
+            </div>
           </div>
-          <div class="settings-group">
-            <label class="settings-group__label" for="settings-api-key">API 密钥</label>
-            <p id="settings-api-key-desc" class="settings-group__desc">用于服务端代理访问上游 API。保存成功后输入框会清空，浏览器不会持久化密钥。</p>
+
+          <section class="settings-section" aria-labelledby="settings-provider-title">
+            <div class="settings-section__header">
+              <h4 id="settings-provider-title">供应商连接</h4>
+              <p>配置同源后端代理使用的上游模型服务。</p>
+            </div>
+            <div class="settings-group">
+              <label class="settings-group__label" for="settings-api-base-url">API 地址</label>
+              <p id="settings-api-base-url-desc" class="settings-group__desc">OpenAI 兼容接口基础 URL（例如 https://api.openai.com）。浏览器只会提交到同源后端保存。</p>
+              <input type="url" id="settings-api-base-url" placeholder="https://api.example.com/v1" autocomplete="off" aria-describedby="settings-api-base-url-desc" />
+            </div>
+            <div class="settings-group">
+              <label class="settings-group__label" for="settings-api-key">API 密钥</label>
+              <p id="settings-api-key-desc" class="settings-group__desc">用于服务端代理访问上游 API。保存成功后输入框会清空，浏览器不会持久化密钥。</p>
+              <div class="api-key-wrapper">
+                <input type="password" id="settings-api-key" placeholder="sk-..." autocomplete="off" aria-describedby="settings-api-key-desc" />
+                <button type="button" id="toggle-api-key-visibility" class="api-key-toggle" aria-label="显示或隐藏密钥">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                </button>
+              </div>
+            </div>
+            <div class="settings-group">
+              <button type="button" id="fetch-models-btn" class="btn btn--secondary btn--full-width">保存配置并获取模型列表</button>
+              <p id="backend-status" class="settings-group__warning" hidden></p>
+              <p id="fetch-models-desc" class="settings-group__desc settings-group__desc--attached">配置会先加密保存到后端，再从同源代理刷新模型列表。</p>
+            </div>
+          </section>
+
+          <section class="settings-section" aria-labelledby="settings-defaults-title">
+            <div class="settings-section__header">
+              <h4 id="settings-defaults-title">默认对话</h4>
+              <p>这些值会作为新请求的默认生成偏好。</p>
+            </div>
+            <div class="settings-group">
+              <label class="settings-group__label" for="settings-system-prompt">系统提示词</label>
+              <p id="settings-system-prompt-desc" class="settings-group__desc">自定义 AI 的行为和角色。</p>
+              <textarea id="settings-system-prompt" rows="4" placeholder="输入自定义系统提示词..." aria-describedby="settings-system-prompt-desc"></textarea>
+            </div>
+            <div class="settings-group">
+              <label class="settings-group__label" for="settings-temperature">温度</label>
+              <p id="settings-temperature-desc" class="settings-group__desc">控制回答的随机性和创造性；也可在运行设置中临时调整。</p>
+              <div class="slider-wrapper">
+                <span class="slider-wrapper__label">精确</span>
+                <input type="range" id="settings-temperature" min="0" max="2" step="0.1" value="0.7" aria-describedby="settings-temperature-desc" />
+                <span class="slider-wrapper__label slider-wrapper__label--right">创意</span>
+                <span id="temp-value" class="slider-value">0.7</span>
+              </div>
+            </div>
+            <div class="settings-group">
+              <label class="settings-group__label" for="settings-max-tokens">最大回复长度</label>
+              <p id="settings-max-tokens-desc" class="settings-group__desc">单次回复的最大 token 数量。</p>
+              <input type="number" id="settings-max-tokens" min="256" max="32768" step="256" value="4096" aria-describedby="settings-max-tokens-desc" />
+            </div>
+          </section>
+
+          <section class="settings-section" aria-labelledby="settings-security-title">
+            <div class="settings-section__header">
+              <h4 id="settings-security-title">数据安全</h4>
+              <p>密钥只交给后端代理处理，不写入浏览器本地存储和导出备份。</p>
+            </div>
             <p class="settings-group__warning">生产部署请使用 HTTPS，并为后端设置 ZHIDA_CONFIG_SECRET。</p>
-            <div class="api-key-wrapper">
-              <input type="password" id="settings-api-key" placeholder="sk-..." autocomplete="off" aria-describedby="settings-api-key-desc" />
-              <button type="button" id="toggle-api-key-visibility" class="api-key-toggle" aria-label="显示/隐藏密钥">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-              </button>
+          </section>
+
+          <section class="settings-section" aria-labelledby="settings-appearance-title">
+            <div class="settings-section__header">
+              <h4 id="settings-appearance-title">外观与快捷键</h4>
+              <p>主题切换位于顶部栏，快捷键可从左侧底部工具栏查看。</p>
             </div>
-          </div>
-
-          <div class="settings-group">
-            <button type="button" id="fetch-models-btn" class="btn btn--secondary btn--full-width">保存配置并获取模型列表</button>
-            <p id="backend-status" class="settings-group__warning" hidden></p>
-            <p id="fetch-models-desc" class="settings-group__desc settings-group__desc--attached">配置会先加密保存到后端，再从同源代理刷新模型列表。</p>
-          </div>
-
-          <hr class="settings-divider" />
-
-          <!-- System Prompt -->
-          <div class="settings-group">
-            <label class="settings-group__label" for="settings-system-prompt">系统提示词</label>
-            <p id="settings-system-prompt-desc" class="settings-group__desc">自定义 AI 的行为和角色</p>
-            <textarea id="settings-system-prompt" rows="4" placeholder="输入自定义系统提示词..." aria-describedby="settings-system-prompt-desc"></textarea>
-          </div>
-
-          <!-- Temperature -->
-          <div class="settings-group">
-            <label class="settings-group__label">温度</label>
-            <p id="settings-temperature-desc" class="settings-group__desc">控制回答的随机性和创造性</p>
-            <div class="slider-wrapper">
-              <span class="slider-wrapper__label">精确</span>
-              <input type="range" id="settings-temperature" min="0" max="2" step="0.1" value="0.7" aria-label="温度" aria-describedby="settings-temperature-desc" />
-              <span class="slider-wrapper__label slider-wrapper__label--right">创意</span>
-              <span id="temp-value" class="slider-value">0.7</span>
-            </div>
-          </div>
-
-          <!-- Max Tokens -->
-          <div class="settings-group">
-            <label class="settings-group__label" for="settings-max-tokens">最大回复长度</label>
-            <p id="settings-max-tokens-desc" class="settings-group__desc">单次回复的最大 token 数量</p>
-            <input type="number" id="settings-max-tokens" min="256" max="32768" step="256" value="4096" aria-describedby="settings-max-tokens-desc" />
-          </div>
+          </section>
         </div>
       </div>
       <div class="modal__footer">
@@ -383,7 +490,7 @@
   <div id="shortcuts-modal" class="modal-overlay" aria-hidden="true" aria-modal="true" role="dialog" aria-labelledby="shortcuts-title">
     <div class="modal modal--shortcut">
       <div class="modal__header">
-        <h3 id="shortcuts-title" class="modal__title">⌨️ 快捷键</h3>
+        <h3 id="shortcuts-title" class="modal__title">快捷键</h3>
         <button class="modal__close" aria-label="关闭">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>

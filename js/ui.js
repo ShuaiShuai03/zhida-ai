@@ -185,6 +185,7 @@ export function updateModelTrigger() {
     <span class="badge ${model.badgeClass}">${model.badge}</span>
     <svg class="model-selector__chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
   `;
+  updateRuntimeSettingsSummary();
 }
 
 export function updateComposerCapabilityControls() {
@@ -257,6 +258,80 @@ export function updateComposerCapabilityControls() {
       ? '开启网络搜索后可设置搜索范围'
       : '当前模型不支持网络搜索';
   }
+  updateRuntimeSettingsSummary();
+  updateRuntimeTemperatureUI();
+}
+
+export function updateRuntimeSettingsSummary() {
+  const summary = $('#runtime-model-summary');
+  const capability = $('#runtime-model-capability');
+  const composerModelPill = $('#composer-model-pill');
+  const model = state.selectedModel;
+  if (summary) {
+    const capabilityText = [
+      model.supportsWebSearch ? '支持联网' : '不支持联网',
+      model.supportsReasoningEffort ? '支持推理深度' : '无推理深度',
+    ].join(' · ');
+    summary.innerHTML = `
+      <span class="runtime-summary__name">${escapeHTML(model.name)}</span>
+      <span class="runtime-summary__desc">${escapeHTML(model.description || capabilityText)}</span>
+    `;
+  }
+  if (capability) {
+    capability.textContent = model.unavailable
+      ? '不可用'
+      : model.supportsResponses
+      ? 'Responses'
+      : 'Chat';
+  }
+  if (composerModelPill) {
+    const searchState = model.supportsWebSearch && state.webSearchEnabled ? '联网开启' : '联网关闭';
+    composerModelPill.textContent = `${model.name} · ${searchState}`;
+    composerModelPill.title = `${model.name} · ${model.description || searchState}`;
+  }
+}
+
+export function updateRuntimeTemperatureUI() {
+  const runtimeTemperature = $('#runtime-temperature');
+  const runtimeTemperatureValue = $('#runtime-temperature-value');
+  if (runtimeTemperature) {
+    runtimeTemperature.value = String(state.temperature);
+  }
+  if (runtimeTemperatureValue) {
+    runtimeTemperatureValue.textContent = state.temperature.toFixed(1);
+  }
+}
+
+export function openRuntimeSettings() {
+  const panel = $('#runtime-settings-panel');
+  const backdrop = $('.runtime-backdrop');
+  const trigger = $('#runtime-settings-btn');
+  if (!panel || !trigger) return;
+
+  updateComposerCapabilityControls();
+  panel.classList.add('open');
+  panel.setAttribute('aria-hidden', 'false');
+  trigger.setAttribute('aria-expanded', 'true');
+  backdrop?.classList.add('visible');
+  requestAnimationFrame(() => {
+    panel.querySelector('input, select, button')?.focus();
+  });
+}
+
+export function closeRuntimeSettings() {
+  const panel = $('#runtime-settings-panel');
+  const backdrop = $('.runtime-backdrop');
+  const trigger = $('#runtime-settings-btn');
+  if (!panel || !trigger) return;
+
+  panel.classList.remove('open');
+  panel.setAttribute('aria-hidden', 'true');
+  trigger.setAttribute('aria-expanded', 'false');
+  backdrop?.classList.remove('visible');
+}
+
+export function isRuntimeSettingsOpen() {
+  return Boolean($('#runtime-settings-panel')?.classList.contains('open'));
 }
 
 // ============================================
@@ -318,14 +393,18 @@ function renderWelcomeScreen(container) {
             <path d="M2 12l10 5 10-5"/>
           </svg>
         </div>
-        <p class="welcome-screen__eyebrow">Same-origin AI workspace</p>
+        <p class="welcome-screen__eyebrow">AI workspace</p>
         <h1 class="welcome-screen__title">智答 AI</h1>
-        <p class="welcome-screen__subtitle">选择模型、配置后端代理，然后从一个清晰的问题开始。</p>
+        <p class="welcome-screen__subtitle">选择一个任务入口，或直接在下方输入问题开始工作。</p>
         <div class="welcome-screen__model">
           <span class="badge ${model.badgeClass}">${model.badge}</span>
           <span>${escapeHTML(model.name)}</span>
         </div>
       </div>
+      <div class="welcome-screen__section-heading">
+        <span>常用任务</span>
+      </div>
+      <div class="welcome-screen__cards">${cards}</div>
       <div id="welcome-backend-status-wrap" class="welcome-screen__backend-status welcome-screen__backend-status--${backendStatusClass}">
         <div class="welcome-screen__backend-status-row">
           <span id="welcome-backend-status-badge" class="welcome-screen__backend-status-badge">${escapeHTML(backendStatus.title)}</span>
@@ -346,10 +425,6 @@ function renderWelcomeScreen(container) {
           </button>
         </div>
       </div>
-      <div class="welcome-screen__section-heading">
-        <span>试试这些开场</span>
-      </div>
-      <div class="welcome-screen__cards">${cards}</div>
     </div>
   `;
 }
@@ -432,6 +507,7 @@ export function updateWelcomeBackendStatus() {
  */
 function createMessageElement(msg) {
   const wrapper = document.createElement('div');
+  const fileResultsHTML = createFileResultsModule(msg);
 
   if (msg.role === 'user') {
     wrapper.className = 'message message--user';
@@ -441,9 +517,10 @@ function createMessageElement(msg) {
       </div>
       <div class="message__bubble">
         <div class="message__text">${escapeHTML(msg.content)}</div>
+        ${fileResultsHTML}
         <div class="message__time">${formatTime(msg.timestamp)}</div>
         <div class="message__actions">
-          <button class="message__action-btn" data-action="copy" data-content="" aria-label="复制消息">
+          <button type="button" class="message__action-btn" data-action="copy" data-content="" aria-label="复制消息">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
             <span>复制</span>
           </button>
@@ -463,7 +540,7 @@ function createMessageElement(msg) {
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
       </div>
       <div class="message__bubble">
-        <span class="error-icon">⚠️</span>
+        <span class="error-icon">!</span>
         <span>${escapeHTML(msg.content)}</span>
       </div>
     `;
@@ -479,7 +556,7 @@ function createMessageElement(msg) {
         <div class="thinking-block" data-msg-id="${escapedMessageId}">
           <button class="thinking-block__toggle" aria-expanded="false" aria-controls="thinking-content-${escapedMessageId}" aria-label="查看思考过程">
             <span class="thinking-block__toggle-icon">▶</span>
-            <span>💭 查看思考过程</span>
+            <span>查看思考过程</span>
           </button>
           <div class="thinking-block__content" id="thinking-content-${escapedMessageId}">
             <div class="message__content">${renderMarkdown(msg.thinking)}</div>
@@ -489,36 +566,111 @@ function createMessageElement(msg) {
     }
 
     const renderedContent = renderMarkdown(msg.content);
+    const summaryText = getMessageSummary(msg.content);
+    const citationsHTML = createCitationModule(msg.content);
 
     wrapper.innerHTML = `
       <div class="message__avatar" aria-hidden="true">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
       </div>
-      <div class="message__bubble">
+      <article class="message__bubble ai-response-card" aria-label="AI 回复">
+        <header class="ai-response-card__header">
+          <div>
+            <span class="ai-response-card__eyebrow">回答摘要</span>
+            <p class="ai-response-card__summary">${escapeHTML(summaryText)}</p>
+          </div>
+        </header>
         ${thinkingHTML}
-        <div class="message__content">${renderedContent}</div>
-        <div class="message__time">${formatTime(msg.timestamp)}</div>
-        <div class="message__actions">
-          <button class="message__action-btn" data-action="copy" data-content="" aria-label="复制消息">
+        <div class="ai-response-card__body">
+          <div class="message__content">${renderedContent}</div>
+        </div>
+        ${citationsHTML}
+        ${fileResultsHTML}
+        <footer class="ai-response-card__footer">
+          <div class="message__time">${formatTime(msg.timestamp)}</div>
+          <div class="message__actions">
+          <button type="button" class="message__action-btn" data-action="copy" data-content="" aria-label="复制消息">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
             <span>复制</span>
           </button>
-          <button class="message__action-btn" data-action="regenerate" aria-label="重新生成">
+          <button type="button" class="message__action-btn" data-action="regenerate" aria-label="重新生成">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
             <span>重新生成</span>
           </button>
-        </div>
-      </div>
+          <button type="button" class="message__action-btn" data-action="follow-up" data-content="" aria-label="追问">
+            <span>追问</span>
+          </button>
+          <button type="button" class="message__action-btn" data-action="export-section" data-content="" aria-label="导出此段">
+            <span>导出此段</span>
+          </button>
+          </div>
+        </footer>
+      </article>
     `;
 
     // Store raw content for copy
-    const copyBtn = wrapper.querySelector('[data-action="copy"]');
-    if (copyBtn) {
-      copyBtn.dataset.content = msg.content;
-    }
+    wrapper.querySelectorAll('[data-content]').forEach((btn) => {
+      btn.dataset.content = msg.content;
+    });
   }
 
   return wrapper;
+}
+
+function getMessageSummary(content) {
+  const plain = String(content || '')
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/[#>*_`~-]/g, ' ')
+    .split('\n')
+    .map((line) => line.trim())
+    .find(Boolean);
+  if (!plain) return '回复已生成。';
+  return plain.length > 120 ? `${plain.slice(0, 118)}…` : plain;
+}
+
+function createCitationModule(content) {
+  const raw = String(content || '');
+  const sourceIndex = raw.search(/\n#{2,3}\s*来源\b/);
+  if (sourceIndex < 0) return '';
+
+  const sourceText = raw.slice(sourceIndex);
+  const matches = [...sourceText.matchAll(/\d+\.\s+\[([^\]]+)\]\(([^)]+)\)/g)];
+  if (matches.length === 0) return '';
+
+  const items = matches.slice(0, 6).map((match) => `
+    <li>
+      <a href="${escapeHTML(match[2])}" target="_blank" rel="noopener noreferrer">${escapeHTML(match[1])}</a>
+    </li>
+  `).join('');
+
+  return `
+    <section class="ai-response-card__module" aria-label="引用来源">
+      <button type="button" class="ai-response-card__module-toggle" aria-expanded="false">
+        <span>引用来源</span>
+        <span>${matches.length} 条</span>
+      </button>
+      <ol class="ai-response-card__sources">${items}</ol>
+    </section>
+  `;
+}
+
+function createFileResultsModule(msg) {
+  const attachments = Array.isArray(msg.attachments) ? msg.attachments : [];
+  if (attachments.length === 0) return '';
+
+  const items = attachments.slice(0, 6).map((att) => {
+    const name = att.name || '未命名文件';
+    const type = att.type || '文件';
+    return `<li><span>${escapeHTML(name)}</span><small>${escapeHTML(type)}</small></li>`;
+  }).join('');
+
+  return `
+    <section class="ai-response-card__module message-file-results" aria-label="文件结果">
+      <div class="ai-response-card__module-title">文件结果</div>
+      <ul>${items}</ul>
+    </section>
+  `;
 }
 
 // ============================================
@@ -545,25 +697,33 @@ export function createStreamingMessage() {
     <div class="message__avatar" aria-hidden="true">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
     </div>
-    <div class="message__bubble">
+    <article class="message__bubble ai-response-card ai-response-card--streaming" aria-label="AI 正在回复">
+      <header class="ai-response-card__header">
+        <div>
+          <span class="ai-response-card__eyebrow">正在生成</span>
+          <p class="ai-response-card__summary">正在组织结论和正文。</p>
+        </div>
+      </header>
       <div class="thinking-block expanded hidden" id="streaming-thinking">
         <button class="thinking-block__toggle" aria-expanded="true" aria-controls="streaming-thinking-content">
           <span class="thinking-block__toggle-icon">▶</span>
-          <span>💭 思考中...</span>
+          <span>思考中...</span>
         </button>
         <div class="thinking-block__content" id="streaming-thinking-content">
           <div class="message__content streaming-thinking-content"></div>
         </div>
       </div>
-      <div class="message__content streaming-content">
-        <div class="loading-indicator" role="status" aria-label="正在生成回复">
-          <span class="loading-indicator__dot"></span>
-          <span class="loading-indicator__dot"></span>
-          <span class="loading-indicator__dot"></span>
+      <div class="ai-response-card__body">
+        <div class="message__content streaming-content">
+          <div class="loading-indicator" role="status" aria-label="正在生成回复">
+            <span class="loading-indicator__dot"></span>
+            <span class="loading-indicator__dot"></span>
+            <span class="loading-indicator__dot"></span>
+          </div>
         </div>
       </div>
       <div class="streaming-status hidden" aria-live="polite"></div>
-    </div>
+    </article>
   `;
 
   container.appendChild(wrapper);
@@ -657,7 +817,7 @@ export function createStreamingMessage() {
         thinkingBlock.removeAttribute('id');
         const toggleBtn = thinkingBlock.querySelector('.thinking-block__toggle');
         if (toggleBtn) {
-          toggleBtn.querySelector('span:last-child').textContent = '💭 查看思考过程';
+          toggleBtn.querySelector('span:last-child').textContent = '查看思考过程';
           toggleBtn.setAttribute('aria-expanded', 'false');
         }
       }
@@ -742,7 +902,7 @@ function autoScrollIfNeeded() {
  */
 export function autoResizeTextarea(textarea) {
   textarea.style.height = 'auto';
-  const maxHeight = 200;
+  const maxHeight = 180;
   textarea.style.height = Math.min(textarea.scrollHeight, maxHeight) + 'px';
   textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden';
 }
@@ -760,6 +920,39 @@ export function updateSendButton(enabled) {
 }
 
 /**
+ * Sync visible composer feedback when attachments are queued.
+ * @param {number} attachmentCount
+ */
+export function updateComposerAttachmentStatus(attachmentCount = 0) {
+  if (state.isStreaming) return;
+
+  const composer = $('#composer');
+  const statusText = $('#composer-status-text');
+  const supportStatus = $('#composer-support-status');
+  const tokenChip = $('#composer-token-chip');
+  const dot = $('#composer-status-dot');
+  const textarea = $('#chat-input');
+
+  composer?.classList.toggle('has-attachments', attachmentCount > 0);
+  dot?.classList.remove('is-busy');
+  if (textarea) {
+    textarea.readOnly = false;
+    textarea.removeAttribute('aria-readonly');
+  }
+
+  if (attachmentCount > 0) {
+    if (statusText) statusText.textContent = `已添加 ${attachmentCount} 个附件，发送前可继续编辑`;
+    if (supportStatus) supportStatus.textContent = '上传状态：附件队列显示在输入内容上方。';
+    if (tokenChip) tokenChip.textContent = `${attachmentCount} 个附件`;
+    return;
+  }
+
+  if (statusText) statusText.textContent = '准备就绪，可以输入问题';
+  if (supportStatus) supportStatus.textContent = '默认状态：输入框可编辑，发送按钮可用。';
+  if (tokenChip) tokenChip.textContent = '可添加附件';
+}
+
+/**
  * Show or hide the stop generation button.
  * @param {boolean} show
  */
@@ -768,6 +961,12 @@ export function showStopButton(show) {
   const stopBtn = $('#stop-btn');
   const chatArea = $('.chat-area');
   const composerStatus = $('#composer-status');
+  const composer = $('#composer');
+  const dot = $('#composer-status-dot');
+  const statusText = $('#composer-status-text');
+  const supportStatus = $('#composer-support-status');
+  const tokenChip = $('#composer-token-chip');
+  const textarea = $('#chat-input');
   if (sendBtn) sendBtn.classList.toggle('hidden', show);
   if (stopBtn) {
     stopBtn.classList.toggle('hidden', !show);
@@ -778,6 +977,27 @@ export function showStopButton(show) {
   }
   if (chatArea) {
     chatArea.setAttribute('aria-busy', String(show));
+  }
+  composer?.classList.toggle('is-generating', show);
+  dot?.classList.toggle('is-busy', show);
+  if (textarea) {
+    textarea.readOnly = show;
+    if (show) {
+      textarea.setAttribute('aria-readonly', 'true');
+    } else {
+      textarea.removeAttribute('aria-readonly');
+    }
+  }
+  if (statusText) {
+    statusText.textContent = show ? '智答 AI 正在生成，可随时停止' : '准备就绪，可以输入问题';
+  }
+  if (supportStatus) {
+    supportStatus.textContent = show
+      ? '生成中状态：发送按钮已切换为停止生成。'
+      : '默认状态：输入框可编辑，发送按钮可用。';
+  }
+  if (tokenChip) {
+    tokenChip.textContent = show ? '流式输出' : '可添加附件';
   }
   if (composerStatus) {
     composerStatus.textContent = show ? '正在生成回复，可使用停止生成按钮中断。' : '';

@@ -5,7 +5,7 @@
 import { loadTheme, saveTheme } from './storage.js';
 
 /** @type {string} */
-let currentTheme = 'light';
+let currentTheme = 'dark';
 
 /** @type {MediaQueryList|null} */
 let mediaQuery = null;
@@ -21,16 +21,15 @@ export function initTheme() {
   if (saved === 'dark' || saved === 'light') {
     currentTheme = saved;
   } else {
-    // Default to system preference
-    currentTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    currentTheme = 'dark';
   }
   applyTheme(currentTheme, false);
 
   // Listen for system preference changes
   mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-  mediaQueryHandler = (e) => {
+  mediaQueryHandler = () => {
     if (!loadTheme()) {
-      currentTheme = e.matches ? 'dark' : 'light';
+      currentTheme = 'dark';
       applyTheme(currentTheme, true);
     }
   };

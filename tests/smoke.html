@@ -96,6 +96,64 @@
       }
     }
 
+    function assertChatAreaStructure(doc, context) {
+      const appContainer = requireElement('.app-container', doc, `${context}: 读取应用容器`);
+      const mainContent = requireElement('.main-content', doc, `${context}: 读取主内容区`);
+      const chatArea = requireElement('.chat-area', doc, `${context}: 读取聊天区`);
+
+      if (!appContainer.contains(chatArea) || !mainContent.contains(chatArea)) {
+        fail(`${context}: 聊天区必须位于 app-container/main-content 内，避免脱离视口高度链`);
+      }
+    }
+
+    function assertShortConversationLayout(win, doc, context) {
+      assertChatAreaStructure(doc, context);
+      const messageArea = requireElement('#chat-messages', doc, `${context}: 读取聊天滚动区`);
+      const firstUserMessage = requireElement('.message--user', doc, `${context}: 读取首条用户消息`);
+      const inputArea = requireElement('.input-area', doc, `${context}: 读取输入区`);
+      const messageAreaRect = messageArea.getBoundingClientRect();
+      const firstUserRect = firstUserMessage.getBoundingClientRect();
+      const inputAreaRect = inputArea.getBoundingClientRect();
+
+      const topGap = firstUserRect.top - messageAreaRect.top;
+      if (topGap < -1 || topGap > 180) {
+        fail(`${context}: 短对话首条消息距离聊天区顶部 ${Math.round(topGap)}px，疑似被推到底部`);
+      }
+
+      const inputBottomGap = Math.abs(win.innerHeight - inputAreaRect.bottom);
+      if (inputBottomGap > 12) {
+        fail(`${context}: 输入区底部距离视口底部 ${Math.round(inputBottomGap)}px，疑似未固定在底部`);
+      }
+
+      assertNoHorizontalOverflow(win, doc, context);
+    }
+
+    function assertWelcomeScreenAtTop(win, doc, context) {
+      assertChatAreaStructure(doc, context);
+      const messageArea = requireElement('#chat-messages', doc, `${context}: 读取聊天滚动区`);
+      const welcomeScreen = requireElement('.welcome-screen', doc, `${context}: 读取欢迎页`);
+      const inputArea = requireElement('.input-area', doc, `${context}: 读取输入区`);
+      const messageAreaRect = messageArea.getBoundingClientRect();
+      const welcomeRect = welcomeScreen.getBoundingClientRect();
+      const inputAreaRect = inputArea.getBoundingClientRect();
+
+      if (messageArea.scrollTop > 1) {
+        fail(`${context}: 欢迎页滚动区 scrollTop=${Math.round(messageArea.scrollTop)}，应从顶部开始`);
+      }
+
+      const topGap = welcomeRect.top - messageAreaRect.top;
+      if (topGap < -1 || topGap > 80) {
+        fail(`${context}: 欢迎页顶部距离聊天区顶部 ${Math.round(topGap)}px，疑似从中部裁切显示`);
+      }
+
+      const inputBottomGap = Math.abs(win.innerHeight - inputAreaRect.bottom);
+      if (inputBottomGap > 12) {
+        fail(`${context}: 输入区底部距离视口底部 ${Math.round(inputBottomGap)}px，疑似未固定在底部`);
+      }
+
+      assertNoHorizontalOverflow(win, doc, context);
+    }
+
     function assertUsableAfterInteraction(win, button, context) {
       const actionHost = button.closest('.conversation-item');
       if (actionHost) {
@@ -464,6 +522,79 @@
       };
     }
 
+    function createScrollableLayoutConversation() {
+      const now = Date.now();
+      const filler = Array.from(
+        { length: 14 },
+        (_, paragraphIndex) => `第 ${paragraphIndex + 1} 段：这是一段用于撑高聊天滚动区的回归测试文本，确保内容超过桌面视口。`
+      ).join('\n\n');
+      const messages = Array.from({ length: 48 }, (_, index) => {
+        const role = index % 2 === 0 ? 'user' : 'ai';
+        return {
+          id: `layout-scroll-${index}`,
+          role,
+          content: `${role === 'user' ? 'Layout scroll question' : 'Layout scroll answer'} ${index + 1}\n\n${filler}`,
+          timestamp: now + index,
+        };
+      });
+
+      return {
+        id: 'layout-scroll-regression',
+        title: 'Layout scroll regression',
+        modelId: 'smoke-standard',
+        createdAt: now,
+        updatedAt: now,
+        pinned: false,
+        tags: [],
+        messages,
+      };
+    }
+
+    async function assertWelcomeResetAfterScrollableConversation(frame, doc, win) {
+      const longConversation = createScrollableLayoutConversation();
+      win.localStorage.setItem('ai_chat_conversations', JSON.stringify([longConversation]));
+      win.localStorage.setItem('ai_chat_active_id', JSON.stringify(longConversation.id));
+
+      doc = await reloadAppFrame(frame);
+      win = frame.contentWindow;
+      if (!win) fail('iframe window not accessible after layout regression reload');
+
+      await waitFor(
+        () => doc.querySelectorAll('.message').length >= longConversation.messages.length,
+        'layout regression long conversation rendered'
+      );
+
+      const messageArea = requireElement('#chat-messages', doc, 'layout regression: 读取聊天滚动区');
+      if (messageArea.scrollHeight <= messageArea.clientHeight + 80) {
+        fail(`layout regression fixture should create a scrollable message area: scrollHeight=${messageArea.scrollHeight}, clientHeight=${messageArea.clientHeight}, viewport=${win.innerWidth}x${win.innerHeight}, messages=${doc.querySelectorAll('.message').length}`);
+      }
+
+      const maxScrollTop = messageArea.scrollHeight - messageArea.clientHeight;
+      messageArea.style.scrollBehavior = 'auto';
+      messageArea.scrollTop = maxScrollTop;
+      messageArea.dispatchEvent(new Event('scroll', { bubbles: true }));
+      await new Promise((resolve) => win.requestAnimationFrame(() => resolve()));
+      if (messageArea.scrollTop <= 1) {
+        fail(`layout regression forced scroll should reach bottom: scrollTop=${messageArea.scrollTop}, maxScrollTop=${maxScrollTop}, scrollHeight=${messageArea.scrollHeight}, clientHeight=${messageArea.clientHeight}`);
+      }
+
+      clickBySelector('#new-chat-btn', doc, 'layout regression: 开启空白新对话');
+      await waitFor(
+        () => doc.querySelector('.welcome-screen'),
+        'layout regression welcome screen rendered after forced scroll'
+      );
+      await new Promise((resolve) => win.requestAnimationFrame(() => resolve()));
+      assertWelcomeScreenAtTop(win, doc, 'welcome after forced scroll');
+
+      win.localStorage.clear();
+      doc = await reloadAppFrame(frame);
+      win = frame.contentWindow;
+      if (!win) fail('iframe window not accessible after layout regression reset');
+      win.confirm = () => true;
+      win.prompt = () => 'smokeTag';
+      return { doc, win };
+    }
+
     async function main() {
       localStorage.clear();
 
@@ -634,6 +765,8 @@
       if (doc.querySelectorAll('.message--user').length > 0) {
         fail('empty state 应为无消息；不应出现历史消息');
       }
+
+      ({ doc, win } = await assertWelcomeResetAfterScrollableConversation(frame, doc, win));
 
       assertDesignRadiusConsistency(win, doc);
       assertFocusVisible(doc, '#settings-btn', 'settings按钮 focus-visible');
@@ -905,6 +1038,7 @@
         'basic AI reply'
       );
       await waitForComposerIdle(doc, 'basic AI reply finalized');
+      assertShortConversationLayout(win, doc, 'short conversation layout');
 
       const markdownStreamMock = installStreamingMarkdownFetchMock(win);
       try {

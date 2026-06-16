@@ -7,6 +7,7 @@
   width: 100%;
   height: 100vh;
   height: 100dvh;
+  min-height: 0;
   overflow: hidden;
   background:
     radial-gradient(circle at 18% 0%, var(--color-primary-soft), transparent 34rem),
@@ -478,6 +479,9 @@
 .main-content {
   flex: 1;
   min-width: 0;
+  min-height: 0;
+  height: 100%;
+  max-height: 100%;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -1092,6 +1096,8 @@
   flex-direction: column;
   overflow: hidden;
   min-width: 0;
+  min-height: 0;
+  max-height: 100%;
 }
 
 .chat-messages {
@@ -1111,7 +1117,6 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
-  min-height: 100%;
 }
 
 /* ---- Input Area ---- */
@@ -1120,10 +1125,8 @@
   flex-shrink: 0;
   padding: var(--space-3) var(--space-4) var(--space-4);
   padding-top: var(--space-3);
-  background:
-    linear-gradient(180deg, transparent, rgba(31, 27, 22, 0.8) 20%, rgba(31, 27, 22, 0.98) 100%),
-    var(--composer-page-bg);
-  border-top: 1px solid transparent;
+  background: color-mix(in srgb, var(--color-bg) 94%, var(--color-surface) 6%);
+  border-top: 1px solid var(--color-border-light);
 }
 
 .input-area__inner {
@@ -2151,207 +2154,6 @@
 
 .custom-select__option.selected .custom-select__option-check {
   opacity: 1;
-}
-
-.chat-messages {
-  background:
-    radial-gradient(circle at 50% 0, rgba(37, 99, 235, 0.045), transparent 36%),
-    var(--color-bg);
-}
-
-.chat-messages__inner,
-.input-area__inner {
-  max-width: 940px;
-}
-
-.input-area {
-  background: linear-gradient(180deg, transparent, var(--color-bg) 24%, var(--color-bg));
-}
-
-.composer {
-  gap: var(--space-2);
-  padding: 10px;
-  border-color: color-mix(in srgb, var(--color-border-strong) 58%, transparent 42%);
-  border-radius: 20px;
-  background: color-mix(in srgb, var(--color-surface) 96%, var(--color-bg-secondary) 4%);
-  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.075), var(--shadow-xs);
-}
-
-.composer__field {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  min-height: 52px;
-  padding: 12px 46px 12px 14px;
-  border: 1px solid color-mix(in srgb, var(--color-border) 78%, transparent 22%);
-  border-radius: 16px;
-  background: var(--color-surface-elevated);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.68);
-  transition: border-color var(--transition-fast),
-              box-shadow var(--transition-fast),
-              min-height var(--transition-base),
-              background-color var(--transition-fast);
-}
-
-.composer:focus-within .composer__field {
-  border-color: var(--color-border-focus);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78), 0 0 0 3px var(--color-input-focus-ring);
-}
-
-.composer--has-attachments .composer__field {
-  min-height: 112px;
-}
-
-.composer--expanded .composer__field {
-  min-height: min(36vh, 300px);
-}
-
-.composer__field-action {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  z-index: 1;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  color: var(--color-text-tertiary);
-  background: color-mix(in srgb, var(--color-surface) 84%, transparent 16%);
-  box-shadow: var(--shadow-xs);
-  transition: border-color var(--transition-fast),
-              color var(--transition-fast),
-              background-color var(--transition-fast),
-              box-shadow var(--transition-fast);
-}
-
-.composer__field-action:hover {
-  color: var(--color-primary);
-  border-color: var(--color-primary-muted);
-  background: var(--color-primary-soft);
-}
-
-.composer__field-action:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-outline);
-}
-
-.composer__field-action[aria-pressed='true'] {
-  color: var(--color-primary);
-  border-color: var(--color-primary-muted);
-  background: var(--color-primary-soft);
-}
-
-.composer__field-action svg {
-  width: 16px;
-  height: 16px;
-}
-
-.composer__textarea {
-  min-height: 26px;
-  max-height: 220px;
-  padding: 0;
-  background: transparent;
-  border: 0;
-  border-radius: var(--radius-lg);
-  line-height: 1.5;
-}
-
-.composer--expanded .composer__textarea {
-  min-height: 168px;
-  max-height: min(30vh, 260px);
-}
-
-.composer__textarea:hover,
-.composer__textarea:focus-visible {
-  border-color: transparent;
-  box-shadow: none;
-}
-
-.composer__textarea::placeholder {
-  color: color-mix(in srgb, var(--color-placeholder) 84%, var(--color-text-secondary) 16%);
-}
-
-.composer__footer {
-  min-height: 38px;
-  padding-top: 0;
-  border-top: 0;
-}
-
-.composer__left-tools {
-  gap: var(--space-2);
-}
-
-.upload-btn,
-.system-prompt-indicator,
-.tool-toggle,
-.reasoning-control {
-  border-radius: var(--radius-lg);
-}
-
-.upload-btn {
-  width: 38px;
-  height: 38px;
-  color: var(--color-text-secondary);
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  box-shadow: var(--shadow-xs);
-}
-
-.upload-btn:hover:not(:disabled) {
-  color: var(--color-primary);
-  background: var(--color-primary-soft);
-  border-color: var(--color-primary-muted);
-}
-
-.send-btn {
-  width: 38px;
-  min-width: 38px;
-  min-height: 38px;
-  height: 38px;
-  gap: 0;
-  padding: 0;
-  border-radius: var(--radius-full);
-  font-weight: 700;
-  background: linear-gradient(135deg, var(--color-primary), color-mix(in srgb, var(--color-primary) 78%, #0F172A 22%));
-}
-
-.send-btn__label {
-  display: none;
-}
-
-.send-btn:disabled {
-  background: var(--color-disabled-bg);
-  color: var(--color-disabled-text);
-  border-color: var(--color-disabled-border);
-  box-shadow: none;
-}
-
-.send-btn:disabled .send-btn__label {
-  color: inherit;
-}
-
-.stop-btn {
-  border-radius: var(--radius-full);
-  min-height: 38px;
-  height: 38px;
-}
-
-[data-theme='dark'] .composer {
-  background: color-mix(in srgb, var(--color-surface) 90%, #050510 10%);
-  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.34), var(--shadow-xs);
-}
-
-[data-theme='dark'] .composer__field {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--color-surface-elevated) 90%, #000 10%), var(--color-surface-muted));
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
-}
-
-[data-theme='dark'] .composer:focus-within .composer__field {
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 0 0 3px var(--color-input-focus-ring);
 }
 
 .composer-wrap .composer {

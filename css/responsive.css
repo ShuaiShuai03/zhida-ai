@@ -184,9 +184,7 @@
     z-index: calc(var(--z-header) - 1);
     padding: var(--space-3) var(--space-3) var(--space-4);
     padding-top: var(--space-2);
-    background:
-      linear-gradient(180deg, transparent, rgba(31, 27, 22, 0.86) 16%, rgba(31, 27, 22, 0.98) 100%),
-      var(--composer-page-bg);
+    background: color-mix(in srgb, var(--color-bg) 94%, var(--color-surface) 6%);
   }
 
   .status-bar,

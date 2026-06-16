@@ -168,6 +168,15 @@ test('model capabilities follow call_methods and optimistic fallback rules', () 
   assert.equal(undeclaredThirdParty.supportsResponses, true);
   assert.equal(undeclaredThirdParty.supportsWebSearch, true);
 
+  const minimaxGatewayModel = normalizeModel({
+    id: 'MiniMax-M3',
+    owned_by: 'openai',
+    supported_endpoint_types: ['openai', 'openai-response', 'openai-response-compact', 'anthropic'],
+  });
+  assert.equal(minimaxGatewayModel.supportsChatCompletions, true);
+  assert.equal(minimaxGatewayModel.supportsResponses, true);
+  assert.equal(minimaxGatewayModel.supportsWebSearch, false);
+
   const currentOpenAiReasoning = normalizeModel({ id: 'gpt-5.5', owned_by: 'openai' });
   assert.equal(currentOpenAiReasoning.supportsResponses, true);
   assert.equal(currentOpenAiReasoning.supportsWebSearch, true);
@@ -189,6 +198,19 @@ test('request routing is capability driven and downgrades unsupported web search
   assert.equal(downgradedDecision.route, 'chat');
   assert.equal(downgradedDecision.downgraded, 'web_search_unavailable');
   assert.deepEqual(downgradedDecision.requestOptions, {});
+
+  const minimaxGatewayDecision = getRequestRouteDecision({
+    model: normalizeModel({
+      id: 'MiniMax-M3',
+      owned_by: 'openai',
+      supported_endpoint_types: ['openai', 'openai-response', 'openai-response-compact', 'anthropic'],
+    }),
+    webSearchEnabled: true,
+    reasoningEffort: 'medium',
+  });
+  assert.equal(minimaxGatewayDecision.route, 'chat');
+  assert.equal(minimaxGatewayDecision.downgraded, 'web_search_unavailable');
+  assert.deepEqual(minimaxGatewayDecision.requestOptions, {});
 
   const responsesDecision = getRequestRouteDecision({
     model: { type: 'standard', supportsWebSearch: true, supportsReasoningEffort: false },

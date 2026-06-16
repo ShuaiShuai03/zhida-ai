@@ -629,6 +629,7 @@ export function renderMessages() {
   const conv = state.activeConversation;
   if (!conv || conv.messages.length === 0) {
     renderWelcomeScreen(container);
+    resetChatScrollToTop();
     return;
   }
 
@@ -642,8 +643,7 @@ export function renderMessages() {
   container.innerHTML = '';
   container.appendChild(fragment);
 
-  // Scroll to bottom
-  requestAnimationFrame(() => scrollToBottom(true));
+  requestAnimationFrame(scrollRenderedMessagesIntoView);
 }
 
 /**
@@ -939,7 +939,7 @@ function createMessageElement(msg) {
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
             <span>重新生成</span>
           </button>
-          <button type="button" class="message__action-btn" data-action="follow-up" data-content="" aria-label="追问">
+          <button type="button" class="message__action-btn" data-action="follow-up" aria-label="追问">
             <span>追问</span>
           </button>
           <button type="button" class="message__action-btn" data-action="export-section" data-content="" aria-label="导出此段">
@@ -950,7 +950,7 @@ function createMessageElement(msg) {
       </article>
     `;
 
-    // Store raw content for copy
+    // Store raw content for actions that need message content
     wrapper.querySelectorAll('[data-content]').forEach((btn) => {
       btn.dataset.content = msg.content;
     });
@@ -1198,15 +1198,57 @@ export function replaceStreamingMessage(streamingEl, msg) {
 let userHasScrolledUp = false;
 let scrollController = null;
 
+function getChatScrollContainer() {
+  return $('#chat-messages');
+}
+
+function isWelcomeScreenRendered() {
+  return Boolean($('#chat-messages-inner')?.querySelector('.welcome-screen'));
+}
+
+function hasScrollableMessages(container) {
+  return container.scrollHeight > container.clientHeight + 1;
+}
+
+function resetChatScrollToTop() {
+  const container = getChatScrollContainer();
+  userHasScrolledUp = false;
+  if (!container) return;
+
+  container.scrollTop = 0;
+  requestAnimationFrame(() => {
+    container.scrollTop = 0;
+    userHasScrolledUp = false;
+  });
+}
+
+function scrollRenderedMessagesIntoView() {
+  const container = getChatScrollContainer();
+  userHasScrolledUp = false;
+  if (!container) return;
+
+  if (hasScrollableMessages(container)) {
+    scrollToBottom(true);
+    return;
+  }
+
+  container.scrollTop = 0;
+}
+
 /**
  * Set up scroll tracking on the chat messages container.
  */
 export function initScrollTracking() {
-  const container = $('#chat-messages');
+  const container = getChatScrollContainer();
   if (!container) return;
 
   scrollController = new AbortController();
   container.addEventListener('scroll', () => {
+    if (isWelcomeScreenRendered()) {
+      userHasScrolledUp = false;
+      return;
+    }
+
     const { scrollTop, scrollHeight, clientHeight } = container;
     userHasScrolledUp = scrollHeight - scrollTop - clientHeight > 100;
   }, { passive: true, signal: scrollController.signal });
@@ -1217,10 +1259,16 @@ export function initScrollTracking() {
  * @param {boolean} [force=false] - Force scroll even if user has scrolled up
  */
 export function scrollToBottom(force = false) {
-  const container = $('#chat-messages');
+  const container = getChatScrollContainer();
   if (!container) return;
+  if (!hasScrollableMessages(container)) {
+    userHasScrolledUp = false;
+    container.scrollTop = 0;
+    return;
+  }
   if (!force && userHasScrolledUp) return;
   container.scrollTop = container.scrollHeight;
+  userHasScrolledUp = false;
 }
 
 /**

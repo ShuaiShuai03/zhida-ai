@@ -223,6 +223,18 @@ async function startMockApi() {
           res.end(JSON.stringify({ error: { message: `call_methods must include responses ${req.headers.authorization}` } }));
           return;
         }
+        if (payload.model === 'force-responses-convert-request-failed') {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({
+            error: {
+              message: `not implemented (request id: test) ${req.headers.authorization}`,
+              type: 'new_api_error',
+              param: '',
+              code: 'convert_request_failed',
+            },
+          }));
+          return;
+        }
         res.writeHead(200, { 'Content-Type': 'text/event-stream' });
         res.write('event: response.created\ndata: {"id":"resp_test_1"}\n\n');
         res.write('event: response.output_text.delta\ndata: {"delta":"response proxy"}\n\n');
@@ -1085,6 +1097,20 @@ test('responses capability errors are normalized and redacted', async () => {
     assert.match(body, /当前 API 服务不支持 Responses API/);
     assert.doesNotMatch(body, /server-secret|Authorization|Bearer/);
     assert.doesNotMatch(body, /call_methods/);
+
+    const convertFailed = await fetch(`http://127.0.0.1:${port}/api/responses`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer browser-secret',
+      },
+      body: JSON.stringify({ model: 'force-responses-convert-request-failed', input: 'hello', stream: true }),
+    });
+    assert.equal(convertFailed.status, 500);
+    const convertFailedBody = await convertFailed.text();
+    assert.match(convertFailedBody, /当前 API 服务不支持 Responses API/);
+    assert.doesNotMatch(convertFailedBody, /server-secret|Authorization|Bearer/);
+    assert.doesNotMatch(convertFailedBody, /convert_request_failed|not implemented/);
   } finally {
     closeChild(proxy);
     mock.server.close();

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN" data-theme="dark">
+<html lang="zh-CN" data-theme="dark" data-display-font="system">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -125,6 +125,10 @@
               <!-- Rendered by JS -->
             </button>
             <div class="model-selector__dropdown">
+              <div class="model-selector__search">
+                <svg class="model-selector__search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+                <input type="search" id="model-search" class="model-selector__search-input" placeholder="搜索模型或提供商" aria-label="搜索模型" autocomplete="off" />
+              </div>
               <div id="model-list" class="model-selector__list" role="listbox">
                 <!-- Rendered by JS -->
               </div>
@@ -185,9 +189,9 @@
               <span class="tool-toggle__track" aria-hidden="true"></span>
               <span class="tool-toggle__label">网络搜索</span>
             </label>
-            <label class="reasoning-control" title="当前模型不是深度思考模型，无法设置推理深度">
+            <div class="reasoning-control" title="当前模型不是深度思考模型，无法设置推理深度">
               <span class="reasoning-control__label">思考深度</span>
-              <select id="reasoning-effort-select" aria-label="思考深度">
+              <select id="reasoning-effort-select" data-custom-select aria-label="思考深度">
                 <option value="none">无</option>
                 <option value="minimal">最小</option>
                 <option value="low">低</option>
@@ -195,17 +199,17 @@
                 <option value="high">高</option>
                 <option value="xhigh">极高</option>
               </select>
-            </label>
-            <label class="reasoning-control search-context-control" title="开启网络搜索后可设置搜索范围">
+            </div>
+            <div class="reasoning-control search-context-control" title="开启网络搜索后可设置搜索范围">
               <span class="reasoning-control__label">搜索范围</span>
-              <select id="web-search-context-select" aria-label="搜索范围">
+              <select id="web-search-context-select" data-custom-select aria-label="搜索范围">
                 <option value="low">低</option>
                 <option value="medium">标准</option>
                 <option value="high">高</option>
               </select>
-            </label>
             </div>
-          </section>
+          </div>
+        </div>
 
           <section class="runtime-section" aria-labelledby="runtime-generation-title">
             <div class="runtime-section__heading">
@@ -271,22 +275,21 @@
                     <span id="composer-mode-chip" class="chip">标准对话</span>
                     <span id="composer-token-chip" class="chip">可添加附件</span>
                   </div>
+                  <div class="composer-action" aria-label="发送控制">
+                    <button id="send-btn" type="submit" class="action-btn send-btn" disabled aria-disabled="true" aria-label="发送消息">
+                      <span class="send-btn__icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
+                      </span>
+                      <span class="send-btn__label">发送</span>
+                    </button>
+                    <button id="stop-btn" type="button" class="action-btn stop-btn is-stop hidden" aria-label="停止生成" aria-hidden="true">
+                      <span class="stop-btn__icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+                      </span>
+                      <span class="stop-btn__label">停止</span>
+                    </button>
+                  </div>
                 </div>
-              </div>
-
-              <div class="composer-action">
-                <button id="send-btn" type="submit" class="action-btn send-btn" disabled aria-disabled="true" aria-label="发送消息">
-                  <span class="send-btn__icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
-                  </span>
-                  <span class="send-btn__label">发送</span>
-                </button>
-                <button id="stop-btn" type="button" class="action-btn stop-btn is-stop hidden" aria-label="停止生成" aria-hidden="true">
-                  <span class="stop-btn__icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
-                  </span>
-                  <span class="stop-btn__label">停止</span>
-                </button>
               </div>
               <div class="progress" aria-hidden="true"></div>
             </form>
@@ -391,6 +394,18 @@
               <h4 id="settings-appearance-title">外观与快捷键</h4>
               <p>主题切换位于顶部栏，快捷键可从左侧底部工具栏查看。</p>
             </div>
+              <div class="settings-group">
+                <label class="settings-group__label" for="settings-display-font">显示字体</label>
+                <p id="settings-display-font-desc" class="settings-group__desc">选择界面、输入框和消息正文使用的字体。</p>
+                <select id="settings-display-font" aria-describedby="settings-display-font-desc">
+                  <option value="system">系统默认</option>
+                  <option value="apple">苹方 / San Francisco</option>
+                  <option value="microsoft">微软雅黑 / Segoe UI</option>
+                  <option value="noto">思源黑体 / Noto Sans</option>
+                  <option value="serif">宋体 / 衬线</option>
+                  <option value="mono">等宽字体</option>
+                </select>
+              </div>
           </section>
         </div>
       </div>

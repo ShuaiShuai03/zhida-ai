@@ -82,9 +82,12 @@ export function getRequestRouteDecision({ model, webSearchEnabled, reasoningEffo
     };
   }
 
+  const includeReasoning = Boolean(reasoningEffort && model.supportsReasoningEffort);
+  const supportsChatCompletions = model.supportsChatCompletions !== false;
+
   // When the model explicitly lacks Responses support, gracefully downgrade
   // to Chat Completions instead of blocking the request entirely.
-  if (webSearchEnabled && !model.supportsWebSearch) {
+  if (webSearchEnabled && !model.supportsWebSearch && supportsChatCompletions) {
     return {
       route: 'chat',
       reason: 'chat_completions',
@@ -93,7 +96,26 @@ export function getRequestRouteDecision({ model, webSearchEnabled, reasoningEffo
     };
   }
 
-  const includeReasoning = Boolean(reasoningEffort && model.supportsReasoningEffort);
+  if (!supportsChatCompletions && !model.supportsResponses) {
+    return {
+      route: 'blocked',
+      reason: '当前模型不支持聊天请求。请重新选择一个可用模型后重试。',
+      requestOptions: {},
+    };
+  }
+
+  if (!supportsChatCompletions && model.supportsResponses) {
+    return {
+      route: 'responses',
+      reason: 'responses_only',
+      requestOptions: {
+        includeWebSearch: Boolean(webSearchEnabled && model.supportsWebSearch),
+        includeReasoning,
+        webSearchContextSize: normalizeWebSearchContextSize(webSearchContextSize),
+      },
+    };
+  }
+
   if (webSearchEnabled || includeReasoning) {
     return {
       route: 'responses',
@@ -834,6 +856,10 @@ function deriveModelCapabilities(apiModel, options = {}) {
     const normalized = method.toLowerCase().replace(/[_-]/g, '.');
     return normalized === 'responses' || normalized === 'response' || normalized.endsWith('.responses');
   });
+  const supportsChatFromCallMethods = callMethods.some((method) => {
+    const normalized = method.toLowerCase().replace(/[_-]/g, '.');
+    return normalized === 'chat.completions' || normalized.endsWith('.chat.completions');
+  });
 
   // Optimistic default: when the provider doesn't declare call_methods,
   // assume Responses is supported.  If it actually isn't, the auto-retry
@@ -842,6 +868,9 @@ function deriveModelCapabilities(apiModel, options = {}) {
   const supportsResponses = hasExplicitCallMethods
     ? supportsResponsesFromCallMethods
     : true;
+  const supportsChatCompletions = hasExplicitCallMethods
+    ? supportsChatFromCallMethods
+    : true;
 
   const supportsWebSearch = supportsResponses;
   const supportsReasoningEffort = supportsResponses && hasExplicitReasoningSupport(apiModel);
@@ -849,6 +878,7 @@ function deriveModelCapabilities(apiModel, options = {}) {
 
   return {
     callMethods,
+    supportsChatCompletions,
     supportsResponses,
     supportsWebSearch,
     supportsReasoningEffort,

@@ -9,6 +9,8 @@ import {
   STORAGE_SOFT_WARNING_RATIO,
   DEFAULT_REASONING_EFFORT,
   DEFAULT_WEB_SEARCH_CONTEXT_SIZE,
+  DEFAULT_DISPLAY_FONT,
+  DISPLAY_FONT_OPTIONS,
   REASONING_EFFORTS,
   WEB_SEARCH_CONTEXT_SIZES,
 } from './config.js';
@@ -250,6 +252,9 @@ export function loadSettings() {
     state.reasoningEffort = REASONING_EFFORTS.includes(data.reasoningEffort)
       ? data.reasoningEffort
       : DEFAULT_REASONING_EFFORT;
+    state.displayFont = DISPLAY_FONT_OPTIONS.includes(data.displayFont)
+      ? data.displayFont
+      : DEFAULT_DISPLAY_FONT;
   }
 }
 
@@ -266,6 +271,7 @@ export function saveSettings() {
     webSearchEnabled: state.webSearchEnabled,
     webSearchContextSize: state.webSearchContextSize,
     reasoningEffort: state.reasoningEffort,
+    displayFont: state.displayFont,
   });
 }
 
@@ -299,6 +305,7 @@ export async function exportAllDataPayload() {
       webSearchEnabled: state.webSearchEnabled,
       webSearchContextSize: state.webSearchContextSize,
       reasoningEffort: state.reasoningEffort,
+      displayFont: state.displayFont,
     },
     conversations: state.conversations,
     activeConversationId: state.activeConversationId,
@@ -321,6 +328,7 @@ export async function importAllData(rawBackup) {
       webSearchEnabled: state.webSearchEnabled,
       webSearchContextSize: state.webSearchContextSize,
       reasoningEffort: state.reasoningEffort,
+      displayFont: state.displayFont,
     },
     conversations: state.conversations,
     activeConversationId: state.activeConversationId,
@@ -340,6 +348,9 @@ export async function importAllData(rawBackup) {
   state.reasoningEffort = REASONING_EFFORTS.includes(merged.settings.reasoningEffort)
     ? merged.settings.reasoningEffort
     : DEFAULT_REASONING_EFFORT;
+  state.displayFont = DISPLAY_FONT_OPTIONS.includes(merged.settings.displayFont)
+    ? merged.settings.displayFont
+    : DEFAULT_DISPLAY_FONT;
   state.models = merged.models;
   state.selectedModelId = merged.selectedModelId;
   state.conversations = merged.conversations;

@@ -15,6 +15,7 @@
   ></iframe>
 
   <script type="module">
+    import { renderMarkdown } from '../js/markdown.js';
     import { sanitizeHTML } from '../js/utils.js';
 
     const DEFAULT_WAIT_TIMEOUT = 60000;
@@ -220,6 +221,17 @@
     function assertElementsExist(root, selectors, context) {
       for (const selector of selectors) {
         requireElement(selector, root, `${context}: ${selector}`);
+      }
+    }
+
+    function assertEnhancedSelectHidden(root, selector, context) {
+      const select = requireElement(selector, root, context);
+      const customSelect = select.parentElement?.querySelector(`.custom-select[data-select-id="${select.id}"]`);
+      if (!customSelect?.querySelector('.custom-select__trigger')) {
+        fail(`${context}: 自定义 select 控件未渲染`);
+      }
+      if (!select.hidden || select.tabIndex !== -1 || select.getAttribute('aria-hidden') !== 'true') {
+        fail(`${context}: 原生 select 应从键盘 Tab 顺序和辅助技术树中移除`);
       }
     }
 
@@ -463,6 +475,13 @@
       if (sanitizedStyle.includes('style=') || !sanitizedStyle.includes('class="katex"')) {
         fail('sanitizer should remove inline styles while preserving safe classes');
       }
+      const renderedArrayContent = renderMarkdown([
+        { type: 'text', text: '数组形态第一行' },
+        { type: 'text', content: '数组形态第二行' },
+      ]);
+      if (!renderedArrayContent.includes('数组形态第一行') || !renderedArrayContent.includes('数组形态第二行')) {
+        fail('AI markdown renderer should support array-shaped assistant content');
+      }
 
       const frame = document.getElementById('app-frame');
       const frameLocation = new URL(frame.src, window.location.href);
@@ -673,6 +692,8 @@
         '#stop-btn',
         '#send-btn',
       ], 'composer 关键控件');
+      assertEnhancedSelectHidden(doc, '#web-search-context-select', '搜索范围 select 增强态');
+      assertEnhancedSelectHidden(doc, '#reasoning-effort-select', '思考深度 select 增强态');
       const composerFooter = requireElement('.composer__footer', doc, '检查底部控制区');
       if (
         !composerFooter ||

@@ -118,14 +118,27 @@
     max-width: none;
   }
 
+  .model-selector {
+    min-width: 0;
+  }
+
   .model-selector__trigger .badge {
     display: none;
   }
 
   .model-selector__dropdown {
-    min-width: 250px;
+    width: min(360px, calc(100vw - var(--space-6)));
+    min-width: min(300px, calc(100vw - var(--space-6)));
     left: auto;
     right: 0;
+  }
+
+  .model-selector__list {
+    max-height: 340px;
+  }
+
+  .capability-controls {
+    grid-column: 1 / -1;
   }
 
   .runtime-panel {
@@ -143,12 +156,22 @@
     transform: translateY(0);
   }
 
+  .custom-select__menu {
+    right: auto;
+    left: 0;
+  }
+
   .chat-messages {
     padding: var(--space-3) var(--space-3);
   }
 
   .message__bubble {
     max-width: 92%;
+  }
+
+  .message-attachment {
+    width: 72px;
+    height: 54px;
   }
 
   .message--ai .message__bubble {
@@ -242,6 +265,24 @@
   .support-line {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .send-btn {
+    min-width: 38px;
+    width: 38px;
+    padding: 0;
+  }
+
+  .send-btn__label {
+    display: none;
+  }
+
+  .attachment-preview {
+    padding-right: 34px;
+  }
+
+  .attachment-chip {
+    max-width: 100%;
   }
 
   .reasoning-control__label,
@@ -342,6 +383,11 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     display: inline-block;
+  }
+
+  .model-provider-text,
+  .provider-avatar--trigger {
+    display: none;
   }
 
   .header__right {

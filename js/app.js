@@ -57,7 +57,12 @@ import {
   updateSystemPromptIndicator,
   initCustomSelectControls,
   updateComposerCapabilityControls,
+  updateComposerAttachmentStatus,
   updateWelcomeBackendStatus,
+  updateRuntimeTemperatureUI,
+  openRuntimeSettings,
+  closeRuntimeSettings,
+  isRuntimeSettingsOpen,
   cleanupUI,
 } from './ui.js';
 import {
@@ -180,10 +185,21 @@ function getCurrentSearchQuery() {
 function updateBackendStatusUI() {
   const statusNode = $('#backend-status');
   const fetchModelsBtn = $('#fetch-models-btn');
+  const headerStatus = $('#header-connection-status');
+  const headerStatusText = $('#header-connection-status-text');
+  const errorCard = $('#settings-config-error-card');
+  const errorMessage = $('#settings-config-error-message');
+
+  let headerClass = 'header-status header-status--checking';
+  let headerText = '检测后端';
+  let configError = '';
 
   if (state.backendAvailable === false) {
+    headerClass = 'header-status header-status--error';
+    headerText = '后端不可用';
+    configError = state.backendError || BACKEND_UNAVAILABLE_MESSAGE;
     if (statusNode) {
-      statusNode.textContent = state.backendError || BACKEND_UNAVAILABLE_MESSAGE;
+      statusNode.textContent = configError;
       statusNode.hidden = false;
     }
     if (fetchModelsBtn) {
@@ -191,6 +207,14 @@ function updateBackendStatusUI() {
       fetchModelsBtn.title = '需要先启动 Node 后端代理';
     }
   } else {
+    if (state.backendAvailable === true && state.isApiConfigured) {
+      headerClass = 'header-status header-status--configured';
+      headerText = '后端已连接';
+    } else if (state.backendAvailable === true) {
+      headerClass = 'header-status header-status--ready';
+      headerText = '待配置 API';
+      configError = '后端已运行，但还没有保存 API 地址和密钥。';
+    }
     if (statusNode) {
       statusNode.hidden = true;
       statusNode.textContent = '';
@@ -199,6 +223,13 @@ function updateBackendStatusUI() {
       fetchModelsBtn.disabled = false;
       fetchModelsBtn.title = '';
     }
+  }
+
+  if (headerStatus) headerStatus.className = headerClass;
+  if (headerStatusText) headerStatusText.textContent = headerText;
+  if (errorCard && errorMessage) {
+    errorCard.hidden = !configError;
+    errorMessage.textContent = configError;
   }
 
   updateWelcomeBackendStatus();
@@ -214,6 +245,12 @@ function showApiConfigSaveError(err) {
   if (isMissingSecret && statusNode) {
     statusNode.textContent = displayMessage;
     statusNode.hidden = false;
+  }
+  const errorCard = $('#settings-config-error-card');
+  const errorMessage = $('#settings-config-error-message');
+  if (errorCard && errorMessage) {
+    errorCard.hidden = false;
+    errorMessage.textContent = displayMessage;
   }
   showToast(displayMessage, 'error', isMissingSecret ? 6000 : 3000);
 }
@@ -237,6 +274,7 @@ function openSettingsModal() {
   if (tempSlider) tempSlider.value = state.temperature;
   if (tempValue) tempValue.textContent = state.temperature.toFixed(1);
   if (maxTokensInput) maxTokensInput.value = state.maxTokens;
+  updateRuntimeTemperatureUI();
   updateBackendStatusUI();
   openModal('settings-modal');
 }
@@ -500,6 +538,7 @@ async function init() {
 
   // Initial send button state
   updateSendButton(canSend());
+  updateComposerAttachmentStatus(pendingAttachments.length);
 
   // First-run: prompt to configure API if not set
   if (state.backendAvailable === false) {
@@ -542,7 +581,7 @@ async function doSend() {
 
 function bindInputEvents() {
   const signal = eventController?.signal;
-  const composer = $('.composer');
+  const composer = $('#composer');
   const textarea = $('#chat-input');
   const sendBtn = $('#send-btn');
   const stopBtn = $('#stop-btn');
@@ -553,10 +592,12 @@ function bindInputEvents() {
   const webSearchToggle = $('#web-search-toggle');
   const reasoningSelect = $('#reasoning-effort-select');
   const webSearchContextSelect = $('#web-search-context-select');
+  const runtimeTemperature = $('#runtime-temperature');
 
   // chat.js 只负责流式状态，最终可发送条件统一回到这里计算，避免遗漏附件态。
   document.addEventListener('composer-state-sync', () => {
     updateSendButton(canSend());
+    updateComposerAttachmentStatus(pendingAttachments.length);
   }, { signal });
 
   if (textarea) {
@@ -587,7 +628,12 @@ function bindInputEvents() {
     }, { signal });
   }
 
-  if (sendBtn) {
+  if (composer) {
+    composer.addEventListener('submit', (e) => {
+      e.preventDefault();
+      doSend();
+    }, { signal });
+  } else if (sendBtn) {
     sendBtn.addEventListener('click', doSend, { signal });
   }
 
@@ -625,6 +671,20 @@ function bindInputEvents() {
     }, { signal });
   }
 
+  if (runtimeTemperature) {
+    runtimeTemperature.addEventListener('input', () => {
+      state.temperature = parseFloat(runtimeTemperature.value);
+      updateRuntimeTemperatureUI();
+      const settingsTempSlider = $('#settings-temperature');
+      const tempValue = $('#temp-value');
+      if (settingsTempSlider) settingsTempSlider.value = state.temperature;
+      if (tempValue) tempValue.textContent = state.temperature.toFixed(1);
+    }, { signal });
+    runtimeTemperature.addEventListener('change', () => {
+      saveSettings();
+    }, { signal });
+  }
+
   if (inputTemplateBtn) {
     inputTemplateBtn.addEventListener('click', () => {
       renderPromptTemplates();
@@ -648,13 +708,16 @@ function bindInputEvents() {
     inputArea.addEventListener('dragover', (e) => {
       e.preventDefault();
       inputArea.classList.add('drag-over');
+      composer?.classList.add('is-drag');
     }, { signal });
     inputArea.addEventListener('dragleave', () => {
       inputArea.classList.remove('drag-over');
+      composer?.classList.remove('is-drag');
     }, { signal });
     inputArea.addEventListener('drop', (e) => {
       e.preventDefault();
       inputArea.classList.remove('drag-over');
+      composer?.classList.remove('is-drag');
       if (e.dataTransfer?.files.length) {
         handleFileSelection(e.dataTransfer.files, { source: 'drop' });
       }
@@ -878,6 +941,9 @@ function bindHeaderEvents() {
   const sidebarToggle = $('#sidebar-toggle');
   const themeToggle = $('#theme-toggle');
   const settingsBtn = $('#settings-btn');
+  const runtimeSettingsBtn = $('#runtime-settings-btn');
+  const runtimeSettingsCloseBtn = $('#runtime-settings-close-btn');
+  const runtimeBackdrop = $('.runtime-backdrop');
   const modelSelector = $('.model-selector');
   const modelTrigger = $('#model-trigger');
   const modelList = $('#model-list');
@@ -895,6 +961,24 @@ function bindHeaderEvents() {
     settingsBtn.addEventListener('click', () => {
       openSettingsModal();
     }, { signal });
+  }
+
+  if (runtimeSettingsBtn) {
+    runtimeSettingsBtn.addEventListener('click', () => {
+      if (isRuntimeSettingsOpen()) {
+        closeRuntimeSettings();
+      } else {
+        openRuntimeSettings();
+      }
+    }, { signal });
+  }
+
+  if (runtimeSettingsCloseBtn) {
+    runtimeSettingsCloseBtn.addEventListener('click', closeRuntimeSettings, { signal });
+  }
+
+  if (runtimeBackdrop) {
+    runtimeBackdrop.addEventListener('click', closeRuntimeSettings, { signal });
   }
 
   // Model selector dropdown
@@ -1120,6 +1204,31 @@ function bindModalEvents() {
     }, { signal });
   }
 
+  const retryConnectionBtn = $('#settings-retry-connection-btn');
+  if (retryConnectionBtn) {
+    retryConnectionBtn.addEventListener('click', async () => {
+      retryConnectionBtn.disabled = true;
+      retryConnectionBtn.textContent = '重试中...';
+      try {
+        await refreshConfigStatus();
+        if (state.isApiConfigured) {
+          await refreshModels({ silent: false });
+        }
+      } finally {
+        retryConnectionBtn.disabled = false;
+        retryConnectionBtn.textContent = '重试连接';
+        updateBackendStatusUI();
+      }
+    }, { signal });
+  }
+
+  const checkConfigBtn = $('#settings-check-config-btn');
+  if (checkConfigBtn) {
+    checkConfigBtn.addEventListener('click', () => {
+      $('#settings-api-base-url')?.focus();
+    }, { signal });
+  }
+
   // Display font applies immediately because it is local-only UI state.
   const displayFontSelect = $('#settings-display-font');
   if (displayFontSelect) {
@@ -1140,6 +1249,10 @@ function bindModalEvents() {
   if (tempSlider && tempValue) {
     tempSlider.addEventListener('input', () => {
       tempValue.textContent = parseFloat(tempSlider.value).toFixed(1);
+      const runtimeTemperature = $('#runtime-temperature');
+      const runtimeTemperatureValue = $('#runtime-temperature-value');
+      if (runtimeTemperature) runtimeTemperature.value = tempSlider.value;
+      if (runtimeTemperatureValue) runtimeTemperatureValue.textContent = parseFloat(tempSlider.value).toFixed(1);
     }, { signal });
   }
 
@@ -1339,6 +1452,8 @@ function bindKeyboardShortcuts() {
     if (e.key === 'Escape') {
       if (isModalOpen()) {
         closeModal();
+      } else if (isRuntimeSettingsOpen()) {
+        closeRuntimeSettings();
       } else if (state.isStreaming) {
         state.abortStream();
       } else {
@@ -1538,6 +1653,13 @@ async function downloadLongTextAttachment(att) {
 /**
  * Render the attachment preview chips.
  */
+function getAttachmentChipIcon(type) {
+  if (type === 'image') {
+    return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="m8 14 2.4-2.4a2 2 0 0 1 2.8 0L18 16"/><circle cx="8.5" cy="8.5" r="1.5"/></svg>';
+  }
+  return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/></svg>';
+}
+
 function renderAttachmentPreview() {
   const container = $('#attachment-preview');
   if (!container) return;
@@ -1547,6 +1669,7 @@ function renderAttachmentPreview() {
     container.classList.add('hidden');
     composer?.classList.remove('composer--has-attachments');
     container.innerHTML = '';
+    updateComposerAttachmentStatus(0);
     return;
   }
 
@@ -1558,7 +1681,7 @@ function renderAttachmentPreview() {
       const modeLabel = att.mode === 'full' ? '全文' : '引用';
       const warning = att.mode === 'full' ? '<span class="attachment-chip__meta attachment-chip__meta--warning">会消耗更多 tokens</span>' : '';
       return `
-        <div class="attachment-chip attachment-chip--generated">
+        <div class="attachment-chip file-chip attachment-chip--generated">
           <span class="attachment-chip__thumb attachment-chip__thumb--icon">${getAttachmentIconHTML('text')}</span>
           <span class="attachment-chip__body">
             <span class="attachment-chip__name">${escapeHTML(att.name)}</span>
@@ -1579,7 +1702,7 @@ function renderAttachmentPreview() {
       : `<span class="attachment-chip__thumb attachment-chip__thumb--icon">${getAttachmentIconHTML(att.type)}</span>`;
     const meta = [att.type === 'image' ? '图片' : '文本', sizeLabel].filter(Boolean).join(' · ');
     return `
-      <div class="attachment-chip${att.type === 'image' ? ' attachment-chip--image' : ''}">
+      <div class="attachment-chip file-chip${att.type === 'image' ? ' attachment-chip--image' : ''}">
         ${thumb}
         <span class="attachment-chip__body">
           <span class="attachment-chip__name">${escapeHTML(att.name)}</span>
@@ -1591,6 +1714,7 @@ function renderAttachmentPreview() {
       </div>
     `;
   }).join('');
+  updateComposerAttachmentStatus(pendingAttachments.length);
 
   container.querySelectorAll('[data-action]').forEach((btn) => {
     btn.addEventListener('click', async () => {

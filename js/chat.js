@@ -788,13 +788,21 @@ export function exportConversation() {
  * @param {Event} e
  */
 export function handleMessageAction(e) {
+  const moduleToggle = e.target.closest('.ai-response-card__module-toggle');
+  if (moduleToggle) {
+    const expanded = moduleToggle.getAttribute('aria-expanded') === 'true';
+    moduleToggle.setAttribute('aria-expanded', String(!expanded));
+    moduleToggle.closest('.ai-response-card__module')?.classList.toggle('expanded', !expanded);
+    return;
+  }
+
   const btn = e.target.closest('.message__action-btn');
   if (!btn) return;
 
   const action = btn.dataset.action;
+  const content = btn.dataset.content;
 
   if (action === 'copy') {
-    const content = btn.dataset.content;
     if (content) {
       copyToClipboard(content).then((ok) => {
         if (ok) showToast('已复制到剪贴板', 'success');
@@ -802,7 +810,31 @@ export function handleMessageAction(e) {
     }
   } else if (action === 'regenerate') {
     regenerateLastResponse();
+  } else if (action === 'follow-up') {
+    const textarea = document.querySelector('#chat-input');
+    if (textarea) {
+      if (!textarea.value.trim()) textarea.value = '请继续展开上面的回答。';
+      textarea.focus();
+      textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+  } else if (action === 'export-section') {
+    if (content) {
+      exportMessageSection(content);
+    }
   }
+}
+
+function exportMessageSection(content) {
+  const blob = new Blob([`# AI 回复片段\n\n${content}\n`], { type: 'text/markdown;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `zhida-ai-section-${Date.now()}.md`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  showToast('片段已导出', 'success');
 }
 
 /**
@@ -821,7 +853,7 @@ export function handleThinkingToggle(e) {
 
   const label = toggleBtn.querySelector('span:last-child');
   if (label) {
-    label.textContent = isExpanded ? '💭 查看思考过程' : '💭 收起思考过程';
+    label.textContent = isExpanded ? '查看思考过程' : '收起思考过程';
   }
   toggleBtn.setAttribute('aria-expanded', !isExpanded);
 }

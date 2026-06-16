@@ -851,7 +851,14 @@ function deriveModelCapabilities(apiModel, options = {}) {
   const callMethods = normalizeStringArray(
     apiModel.call_methods || apiModel.callMethods || apiModel.capabilities?.call_methods
   );
+  const endpointTypes = normalizeStringArray(
+    apiModel.supported_endpoint_types
+      || apiModel.supportedEndpointTypes
+      || apiModel.capabilities?.supported_endpoint_types
+      || apiModel.capabilities?.supportedEndpointTypes
+  );
   const hasExplicitCallMethods = callMethods.length > 0;
+  const hasExplicitEndpointTypes = endpointTypes.length > 0;
   const supportsResponsesFromCallMethods = callMethods.some((method) => {
     const normalized = method.toLowerCase().replace(/[_-]/g, '.');
     return normalized === 'responses' || normalized === 'response' || normalized.endsWith('.responses');
@@ -860,19 +867,34 @@ function deriveModelCapabilities(apiModel, options = {}) {
     const normalized = method.toLowerCase().replace(/[_-]/g, '.');
     return normalized === 'chat.completions' || normalized.endsWith('.chat.completions');
   });
+  const supportsResponsesFromEndpointTypes = endpointTypes.some((type) => {
+    const normalized = type.toLowerCase().replace(/[_\s]+/g, '-');
+    return normalized === 'openai-response' || normalized === 'openai-response-compact';
+  });
+  const supportsChatFromEndpointTypes = endpointTypes.some((type) => {
+    const normalized = type.toLowerCase().replace(/[_\s]+/g, '-');
+    return normalized === 'openai';
+  });
 
   // Optimistic default: when the provider doesn't declare call_methods,
   // assume Responses is supported.  If it actually isn't, the auto-retry
   // logic in streamModelResponse will correct the assumption at runtime and
-  // cache the result.  When call_methods IS declared, respect it exactly.
+  // cache the result.  When call_methods or endpoint types ARE declared,
+  // respect them exactly.
   const supportsResponses = hasExplicitCallMethods
     ? supportsResponsesFromCallMethods
+    : hasExplicitEndpointTypes
+    ? supportsResponsesFromEndpointTypes
     : true;
   const supportsChatCompletions = hasExplicitCallMethods
     ? supportsChatFromCallMethods
+    : hasExplicitEndpointTypes
+    ? supportsChatFromEndpointTypes
     : true;
 
-  const supportsWebSearch = supportsResponses;
+  const supportsWebSearch = hasExplicitEndpointTypes && !hasExplicitCallMethods
+    ? supportsResponses && hasExplicitWebSearchSupport(apiModel)
+    : supportsResponses;
   const supportsReasoningEffort = supportsResponses && hasExplicitReasoningSupport(apiModel);
   const capabilityReason = '';
 
@@ -907,6 +929,54 @@ function normalizeReasoningEffortForRequest({ modelId, effort, includeWebSearch 
 
 function normalizeWebSearchContextSize(value) {
   return WEB_SEARCH_CONTEXT_SIZES.includes(value) ? value : DEFAULT_WEB_SEARCH_CONTEXT_SIZE;
+}
+
+function hasExplicitWebSearchSupport(apiModel) {
+  if (
+    apiModel.supports_web_search === true
+    || apiModel.supportsWebSearch === true
+    || apiModel.capabilities?.web_search === true
+    || apiModel.capabilities?.webSearch === true
+  ) {
+    return true;
+  }
+
+  const supportedParameters = normalizeStringArray(
+    apiModel.supported_parameters
+      || apiModel.supportedParameters
+      || apiModel.capabilities?.supported_parameters
+      || apiModel.capabilities?.supportedParameters
+  );
+  if (supportedParameters.some(isWebSearchCapabilityToken)) return true;
+
+  const supportedTools = [
+    apiModel.tools,
+    apiModel.supported_tools,
+    apiModel.supportedTools,
+    apiModel.capabilities?.tools,
+    apiModel.capabilities?.supported_tools,
+    apiModel.capabilities?.supportedTools,
+  ].flatMap(normalizeToolTokens);
+
+  return supportedTools.some(isWebSearchCapabilityToken);
+}
+
+function normalizeToolTokens(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => {
+      if (item && typeof item === 'object') {
+        return item.type || item.name || item.id || '';
+      }
+      return item;
+    })
+    .map((item) => String(item || '').trim())
+    .filter(Boolean);
+}
+
+function isWebSearchCapabilityToken(value) {
+  const normalized = String(value || '').toLowerCase().replace(/[.\s-]+/g, '_');
+  return normalized === 'web_search' || normalized === 'tools_web_search';
 }
 
 function hasExplicitReasoningSupport(apiModel) {

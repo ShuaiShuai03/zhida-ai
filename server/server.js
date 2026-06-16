@@ -441,6 +441,9 @@ function redactSecret(value, secret) {
 
 function isResponsesUnsupportedError(upstreamPath, status, rawError) {
   if (!upstreamPath.startsWith('/v1/responses')) return false;
+  if (status === 500) {
+    return /convert_request_failed|not implemented/i.test(rawError || '');
+  }
   if (![400, 404, 405, 422, 501].includes(status)) return false;
   if ([404, 405, 501].includes(status)) return true;
   return /call_methods\s+must\s+include\s+responses|does\s+not\s+support\s+(this\s+)?api|responses\s+api|unsupported.*responses|responses.*unsupported|model.*responses/i

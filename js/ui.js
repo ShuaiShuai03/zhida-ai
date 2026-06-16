@@ -939,7 +939,7 @@ function createMessageElement(msg) {
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
             <span>重新生成</span>
           </button>
-          <button type="button" class="message__action-btn" data-action="follow-up" data-content="" aria-label="追问">
+          <button type="button" class="message__action-btn" data-action="follow-up" aria-label="追问">
             <span>追问</span>
           </button>
           <button type="button" class="message__action-btn" data-action="export-section" data-content="" aria-label="导出此段">
@@ -950,7 +950,7 @@ function createMessageElement(msg) {
       </article>
     `;
 
-    // Store raw content for copy
+    // Store raw content for actions that need message content
     wrapper.querySelectorAll('[data-content]').forEach((btn) => {
       btn.dataset.content = msg.content;
     });

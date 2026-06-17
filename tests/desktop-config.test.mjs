@@ -135,6 +135,7 @@ test('electron-builder package excludes local secrets and development data', asy
   const files = packageJson.build?.files;
 
   assert.equal(Array.isArray(files), true);
+  assert.equal(files.includes('vendor/**'), true, 'vendored browser assets should be packaged');
   for (const pattern of [
     '!**/.env',
     '!**/.env.*',
@@ -148,4 +149,27 @@ test('electron-builder package excludes local secrets and development data', asy
   ]) {
     assert.equal(files.includes(pattern), true, `${pattern} should be excluded from packaged app`);
   }
+});
+
+test('desktop Windows beta package metadata is explicit', async () => {
+  const packageJson = JSON.parse(await readFile('package.json', 'utf8'));
+
+  assert.equal(packageJson.version, '0.1.0');
+  assert.equal(typeof packageJson.author, 'string');
+  assert.ok(packageJson.author.length > 0);
+  assert.equal(packageJson.license, 'MIT');
+  assert.equal(packageJson.build?.appId, 'com.zhida.ai');
+  assert.equal(packageJson.build?.productName, '智答 AI');
+  assert.equal(packageJson.build?.win?.icon, 'assets/icon.ico');
+  assert.equal(packageJson.build?.nsis?.oneClick, false);
+  assert.equal(packageJson.build?.nsis?.perMachine, false);
+  assert.equal(packageJson.build?.nsis?.allowToChangeInstallationDirectory, true);
+  assert.equal(packageJson.build?.nsis?.deleteAppDataOnUninstall, false);
+  assert.equal(packageJson.build?.nsis?.installerIcon, 'assets/icon.ico');
+  assert.equal(packageJson.build?.nsis?.uninstallerIcon, 'assets/icon.ico');
+
+  const icon = await readFile('assets/icon.ico');
+  assert.equal(icon.readUInt16LE(0), 0);
+  assert.equal(icon.readUInt16LE(2), 1);
+  assert.ok(icon.readUInt16LE(4) >= 1);
 });

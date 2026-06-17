@@ -1,6 +1,6 @@
 /**
  * Markdown parsing and rendering engine.
- * Uses marked.js + highlight.js + KaTeX via CDN (loaded in index.html).
+ * Uses vendored marked.js + highlight.js + KaTeX assets loaded in index.html.
  */
 
 import { sanitizeHTML, escapeHTML } from './utils.js';

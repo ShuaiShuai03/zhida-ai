@@ -1442,6 +1442,14 @@ test('static server only exposes browser app assets and blocks backend internals
     assert.equal(appJs.status, 200);
     assert.match(appJs.headers.get('content-type') ?? '', /javascript/);
 
+    const vendoredScript = await fetch(`http://127.0.0.1:${port}/vendor/marked/14.1.3/marked.min.js`);
+    assert.equal(vendoredScript.status, 200);
+    assert.match(vendoredScript.headers.get('content-type') ?? '', /javascript/);
+
+    const vendoredFont = await fetch(`http://127.0.0.1:${port}/vendor/katex/0.16.11/fonts/KaTeX_Main-Regular.woff2`);
+    assert.equal(vendoredFont.status, 200);
+    assert.match(vendoredFont.headers.get('content-type') ?? '', /font\/woff2/);
+
     const smokePage = await fetch(`http://127.0.0.1:${port}/tests/smoke.html`);
     assert.equal(smokePage.status, 404);
 
@@ -1462,6 +1470,7 @@ test('static server only exposes browser app assets and blocks backend internals
       '/css/not-found.css',
       '/js/not-found.js',
       '/assets/not-found.svg',
+      '/vendor/not-found.js',
       '/tests/not-found.html',
       '/%2e%2e/server/server.js',
       '/%2f%2e%2fserver/server.js',
@@ -1508,6 +1517,9 @@ test('server sends enterprise security headers and revalidates cacheable static 
     assert.equal(index.status, 200);
     assert.equal(index.headers.get('cache-control'), 'no-store');
     assert.match(index.headers.get('content-security-policy') ?? '', /default-src 'self'/);
+    assert.match(index.headers.get('content-security-policy') ?? '', /script-src 'self'(;|$)/);
+    assert.match(index.headers.get('content-security-policy') ?? '', /font-src 'self' data:/);
+    assert.doesNotMatch(index.headers.get('content-security-policy') ?? '', /cdn\.jsdelivr|cdnjs\.cloudflare/);
     assert.match(index.headers.get('content-security-policy') ?? '', /frame-ancestors 'none'/);
     assert.equal(index.headers.get('x-frame-options'), 'DENY');
 

@@ -83,15 +83,18 @@ const MIME_TYPES = {
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
   '.ico': 'image/x-icon',
+  '.woff2': 'font/woff2',
+  '.woff': 'font/woff',
+  '.ttf': 'font/ttf',
   '.txt': 'text/plain; charset=utf-8',
 };
 
 const CONTENT_SECURITY_POLICY = [
   "default-src 'self'",
-  "script-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com",
-  "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: https:",
-  "font-src 'self' data: https://cdn.jsdelivr.net",
+  "font-src 'self' data:",
   "connect-src 'self'",
   "base-uri 'none'",
   "object-src 'none'",
@@ -1020,6 +1023,7 @@ function isAllowedStaticPath(pathname) {
     || pathname.startsWith('/css/')
     || pathname.startsWith('/js/')
     || pathname.startsWith('/assets/')
+    || pathname.startsWith('/vendor/')
     || (ENABLE_TEST_ROUTES && pathname === '/tests/smoke.html');
 }
 

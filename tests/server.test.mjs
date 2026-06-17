@@ -9,6 +9,7 @@ import { once } from 'node:events';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { setTimeout as delay } from 'node:timers/promises';
+import { pathToFileURL } from 'node:url';
 
 async function freePort() {
   const server = createServer();
@@ -1018,7 +1019,7 @@ test('proxy timeout terminates an upstream reader that ignores abort and cancel 
     ZHIDA_CONFIG_PATH: join(configDir, 'config.enc.json'),
     ZHIDA_PROXY_TIMEOUT_MS: '120',
     ZHIDA_FETCH_PROBE_PATH: probePath,
-    NODE_OPTIONS: `--import=${preloadPath}`,
+    NODE_OPTIONS: `--import=${pathToFileURL(preloadPath).href}`,
   });
 
   try {

@@ -8,6 +8,19 @@ API_PORT="${API_PORT:-11434}"
 CHROME_BIN="${CHROME_BIN:-google-chrome}"
 CHROME_TIMEOUT="${CHROME_TIMEOUT:-180s}"
 
+if [[ "$CHROME_BIN" == "google-chrome" ]] && ! command -v "$CHROME_BIN" >/dev/null 2>&1; then
+  for candidate in \
+    "/c/Program Files/Google/Chrome/Application/chrome.exe" \
+    "/c/Program Files (x86)/Google/Chrome/Application/chrome.exe" \
+    "/c/Program Files/Microsoft/Edge/Application/msedge.exe" \
+    "/c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"; do
+    if [[ -x "$candidate" ]]; then
+      CHROME_BIN="$candidate"
+      break
+    fi
+  done
+fi
+
 APP_LOG="$(mktemp)"
 API_LOG="$(mktemp)"
 DOM_LOG="$(mktemp)"

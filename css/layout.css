@@ -751,12 +751,19 @@
   background: var(--color-overlay-soft);
   opacity: 0;
   pointer-events: none;
-  transition: opacity var(--transition-base);
+  visibility: hidden;
+  transition:
+    opacity var(--transition-base),
+    visibility 0s linear var(--transition-base);
 }
 
 .runtime-backdrop.visible {
   opacity: 1;
   pointer-events: auto;
+  visibility: visible;
+  transition:
+    opacity var(--transition-base),
+    visibility 0s;
 }
 
 .runtime-panel {
@@ -776,13 +783,22 @@
   transform: translateX(calc(100% + var(--space-5)));
   opacity: 0;
   pointer-events: none;
-  transition: transform var(--transition-base), opacity var(--transition-base);
+  visibility: hidden;
+  transition:
+    transform var(--transition-base),
+    opacity var(--transition-base),
+    visibility 0s linear var(--transition-base);
 }
 
 .runtime-panel.open {
   transform: translateX(0);
   opacity: 1;
   pointer-events: auto;
+  visibility: visible;
+  transition:
+    transform var(--transition-base),
+    opacity var(--transition-base),
+    visibility 0s;
 }
 
 .runtime-panel__header {

@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 
 export const DESKTOP_SECRET_FILE = 'desktop-secret.enc.json';
@@ -74,27 +74,14 @@ async function readEncryptedSecret(secretPath, safeStorage) {
   return secret;
 }
 
-export async function getOrCreateDesktopSecret({
-  userDataDir,
-  safeStorage,
-  randomBytesFn = randomBytes,
-} = {}) {
-  assertSafeStorageAvailable(safeStorage);
-  const paths = resolveDesktopDataPaths(userDataDir);
+async function backupUnreadableSecret(secretPath) {
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const backupPath = `${secretPath}.invalid-${stamp}`;
+  await rename(secretPath, backupPath);
+  return backupPath;
+}
 
-  try {
-    return {
-      secret: await readEncryptedSecret(paths.secretPath, safeStorage),
-      paths,
-      created: false,
-    };
-  } catch (err) {
-    if (err?.code !== 'ENOENT') {
-      throw err;
-    }
-  }
-
-  const secret = randomBytesFn(32).toString('base64');
+async function writeEncryptedSecret(secretPath, safeStorage, secret) {
   const payload = {
     version: 1,
     protection: 'electron.safeStorage',
@@ -102,8 +89,37 @@ export async function getOrCreateDesktopSecret({
     updatedAt: new Date().toISOString(),
   };
 
-  await mkdir(dirname(paths.secretPath), { recursive: true });
-  await writeFile(paths.secretPath, `${JSON.stringify(payload, null, 2)}\n`, { mode: 0o600 });
+  await mkdir(dirname(secretPath), { recursive: true });
+  await writeFile(secretPath, `${JSON.stringify(payload, null, 2)}\n`, { mode: 0o600 });
+}
 
-  return { secret, paths, created: true };
+export async function getOrCreateDesktopSecret({
+  userDataDir,
+  safeStorage,
+  randomBytesFn = randomBytes,
+} = {}) {
+  assertSafeStorageAvailable(safeStorage);
+  const paths = resolveDesktopDataPaths(userDataDir);
+  let recovered = false;
+  let backupPath = null;
+
+  try {
+    return {
+      secret: await readEncryptedSecret(paths.secretPath, safeStorage),
+      paths,
+      created: false,
+      recovered: false,
+      backupPath: null,
+    };
+  } catch (err) {
+    if (err?.code !== 'ENOENT') {
+      backupPath = await backupUnreadableSecret(paths.secretPath);
+      recovered = true;
+    }
+  }
+
+  const secret = randomBytesFn(32).toString('base64');
+  await writeEncryptedSecret(paths.secretPath, safeStorage, secret);
+
+  return { secret, paths, created: true, recovered, backupPath };
 }

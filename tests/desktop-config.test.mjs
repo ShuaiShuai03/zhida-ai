@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile, rm, mkdtemp } from 'node:fs/promises';
+import { readFile, rm, mkdtemp, writeFile } from 'node:fs/promises';
 import { join, relative, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -69,6 +69,47 @@ test('desktop secret is protected by safeStorage and reused without plaintext le
 
     assert.equal(second.created, false);
     assert.equal(second.secret, first.secret);
+  } finally {
+    await rm(userDataDir, { recursive: true, force: true });
+  }
+});
+
+test('desktop secret recovers from an unreadable safeStorage payload', async () => {
+  const userDataDir = await mkdtemp(join(tmpdir(), 'zhida-desktop-secret-recovery-'));
+  const seed = Buffer.from('abcdef0123456789abcdef0123456789', 'utf8');
+  try {
+    const paths = resolveDesktopDataPaths(userDataDir);
+    await writeFile(paths.secretPath, `${JSON.stringify({
+      version: 1,
+      protection: 'electron.safeStorage',
+      ciphertext: Buffer.from('not-this-install', 'utf8').toString('base64'),
+    })}\n`);
+
+    const recovered = await getOrCreateDesktopSecret({
+      userDataDir,
+      safeStorage: createFakeSafeStorage(),
+      randomBytesFn: () => seed,
+    });
+
+    assert.equal(recovered.created, true);
+    assert.equal(recovered.recovered, true);
+    assert.match(recovered.backupPath, /desktop-secret\.enc\.json\.invalid-/);
+
+    const backup = await readFile(recovered.backupPath, 'utf8');
+    assert.match(backup, /bm90LXRoaXMtaW5zdGFsbA==/);
+
+    const stored = await readFile(recovered.paths.secretPath, 'utf8');
+    assert.equal(stored.includes(recovered.secret), false);
+
+    const reused = await getOrCreateDesktopSecret({
+      userDataDir,
+      safeStorage: createFakeSafeStorage(),
+      randomBytesFn: () => {
+        throw new Error('should reuse recovered desktop secret');
+      },
+    });
+    assert.equal(reused.created, false);
+    assert.equal(reused.secret, recovered.secret);
   } finally {
     await rm(userDataDir, { recursive: true, force: true });
   }

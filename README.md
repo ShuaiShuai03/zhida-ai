@@ -161,7 +161,31 @@ npm run desktop:dir
 npm run desktop:build
 ```
 
-electron-builder 的打包白名单只包含运行所需的前端、server 和 desktop 文件，并显式排除 `.env`、`.zhida-data/`、`server/data/`、`*.enc.json`、日志、测试和开发资料。
+当前 beta 保持 `version=0.1.0`，安装器输出为 `dist/desktop/智答 AI Setup 0.1.0.exe`。`productName` 为 `智答 AI`，`appId` 为 `com.zhida.ai`。NSIS 使用非 one-click、当前用户安装、允许选择安装目录；卸载默认保留用户数据，避免误删本地配置和会话数据。
+
+electron-builder 的打包白名单只包含运行所需的前端、server、desktop、assets 和 vendor 文件，并显式排除 `.env`、`.zhida-data/`、`server/data/`、`*.enc.json`、日志、测试、脚本、Docker 配置和开发资料。
+
+### Windows beta 发布检查
+
+```powershell
+npx --yes node@22 --test tests/*.test.mjs
+bash -lc 'APP_PORT=<free-port> bash scripts/run_smoke.sh'
+npm run desktop:smoke
+npm run desktop:dir
+npm run desktop:audit
+npm run desktop:build
+python scripts/check_markdown.py
+python -m py_compile scripts/check_markdown.py scripts/mock_api.py
+bash -n scripts/start.sh scripts/run_smoke.sh
+bash -lc 'for f in js/*.js desktop/*.js server/server.js scripts/*.mjs; do node --check "$f"; done'
+git diff --check
+```
+
+`desktop:smoke` 使用临时 Electron `userData`，只验证隐藏窗口启动、内部 loopback 代理、`/?desktop=1` 加载和 `/api/config/status`，不需要真实 API key。`desktop:audit` 会读取 `app.asar` 并在秘密、测试、脚本、日志或 local-only 文件进入包时失败。
+
+### 离线资源
+
+桌面包和 Node 后端运行时不依赖 CDN。`marked.js`、`highlight.js`、`KaTeX` 以及 KaTeX 字体固定在 `vendor/`，`index.html` 继续保留 sha384 integrity 元数据；来源和校验值记录在 `vendor/README.md`。如果升级这些浏览器库，请同时更新本地文件、`index.html` integrity 和 `vendor/README.md`。
 
 ### 桌面安全模型
 
@@ -169,6 +193,14 @@ electron-builder 的打包白名单只包含运行所需的前端、server 和 d
 - 桌面模式把加密配置保存到 Electron `userData` 目录下的 `config.enc.json`，不写入仓库。
 - 用于保护配置的本机安装级密钥保存为 `desktop-secret.enc.json`，内容由 Electron `safeStorage` 保护；Windows 上由系统加密能力提供保护。
 - Renderer 关闭 Node integration，启用 context isolation、sandbox 和 webSecurity；外部导航会被拦截并交给系统浏览器。
+
+Windows 上 Electron `userData` 默认位于 `%APPDATA%\智答 AI`。如需只重置桌面 API 配置，请先完全退出应用，再删除其中的 `config.enc.json` 和 `desktop-secret.enc.json`；下次启动会重新生成本机密钥并要求重新填写 API 配置。不要把这两个文件复制到其他机器或提交到仓库。
+
+### 已知非阻断限制
+
+- 桌面 beta 还没有自动更新流程；发布新版本时需要重新安装新的 NSIS 安装包。
+- `desktop:smoke` 不会调用真实上游模型，只覆盖本地启动和配置状态链路。
+- 卸载默认保留 Electron `userData`；需要彻底清空桌面数据时请手动删除 `%APPDATA%\智答 AI`。
 
 ## 安全模型
 
@@ -309,7 +341,7 @@ docker compose up -d
 python3 scripts/check_markdown.py
 
 # JavaScript 语法校验
-for f in js/*.js desktop/*.js server/server.js; do node --check "$f"; done
+for f in js/*.js desktop/*.js server/server.js scripts/*.mjs; do node --check "$f"; done
 
 # Shell 与 Python 脚本校验
 bash -n scripts/start.sh scripts/run_smoke.sh
@@ -318,10 +350,13 @@ python3 -m py_compile scripts/check_markdown.py scripts/mock_api.py
 # 纯逻辑和服务端单测
 node --test tests/*.test.mjs
 
-# 桌面打包配置检查
+# 桌面启动和打包检查
+npm run desktop:smoke
 npm run desktop:dir
+npm run desktop:audit
+npm run desktop:build
 
-# 浏览器 smoke，需要本机可执行 google-chrome
+# 浏览器 smoke，需要本机可执行 Chrome 或 Edge
 bash scripts/run_smoke.sh
 
 # Git 空白检查
@@ -345,9 +380,11 @@ zhida-ai/
 │   └── main.js
 ├── assets/
 │   ├── favicon.svg
+│   ├── icon.ico
 │   ├── readme/
 │   └── screenshots/
 │       └── zhida-ai-showcase.png
+├── vendor/
 ├── scripts/
 ├── server/
 ├── tests/
@@ -365,14 +402,14 @@ zhida-ai/
 | --- | --- |
 | HTML5 + CSS3 + ES Modules | 前端应用主体 |
 | Electron + electron-builder | Windows 桌面壳、本地开发启动和 NSIS 打包 |
-| marked.js | Markdown 解析 |
-| highlight.js | 代码高亮 |
-| KaTeX | 数学公式渲染 |
+| marked.js | Markdown 解析，本地 vendored |
+| highlight.js | 代码高亮，本地 vendored |
+| KaTeX | 数学公式渲染和字体，本地 vendored |
 | Node.js 20+/22+ 内置 `http` / `fetch` / `crypto` | 静态服务、配置加密和 API 代理 |
 | Nginx | 静态 Docker 预览 |
 | Google Chrome Headless | 浏览器 smoke 测试 |
 
-运行时会从 CDN 加载 `marked.js`、`highlight.js` 和 `KaTeX`。如果部署环境不能访问这些 CDN，需要自行 vendoring 或替换为可访问的静态资源。
+运行时从 `vendor/` 加载 `marked.js`、`highlight.js`、`KaTeX` 和 KaTeX 字体；桌面包和 Node 后端模式的核心 UI 不需要 CDN 可用。
 
 ## 常见问题
 

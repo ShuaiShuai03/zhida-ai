@@ -1,7 +1,8 @@
-import { app, BrowserWindow, dialog, safeStorage, shell } from 'electron';
+import electron from 'electron';
 import { resolve } from 'node:path';
 import { buildDesktopRuntimeEnv, getOrCreateDesktopSecret } from './config.js';
 
+const { app, BrowserWindow, dialog, safeStorage, shell } = electron;
 const DESKTOP_SMOKE_MODE = process.env.ZHIDA_DESKTOP_SMOKE === '1';
 
 const WINDOW_OPTIONS = {

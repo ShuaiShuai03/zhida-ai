@@ -674,7 +674,7 @@ function renderWelcomeScreen(container) {
             <path d="M2 12l10 5 10-5"/>
           </svg>
         </div>
-        <p class="welcome-screen__eyebrow">AI workspace</p>
+        <p class="welcome-screen__eyebrow">AI 工作台</p>
         <h1 class="welcome-screen__title">智答 AI</h1>
         <p class="welcome-screen__subtitle">选择一个任务入口，或直接在下方输入问题开始工作。</p>
         <div class="welcome-screen__model">

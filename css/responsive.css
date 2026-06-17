@@ -353,6 +353,26 @@
     border-radius: var(--radius-xl) var(--radius-xl) 0 0;
   }
 
+  .settings-section .settings-group:has(> .settings-group__label) {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-section .settings-group:has(> .settings-group__label) > .settings-group__label,
+  .settings-section .settings-group:has(> .settings-group__label) > .settings-group__desc,
+  .settings-section .settings-group:has(> .settings-group__label) > .settings-group__warning,
+  .settings-section .settings-group:has(> .settings-group__label) > input,
+  .settings-section .settings-group:has(> .settings-group__label) > select,
+  .settings-section .settings-group:has(> .settings-group__label) > textarea,
+  .settings-section .settings-group:has(> .settings-group__label) > .api-key-wrapper,
+  .settings-section .settings-group:has(> .settings-group__label) > .slider-wrapper {
+    grid-column: 1;
+  }
+
+  .settings-section .settings-group:has(> .settings-group__label) > .settings-group__label {
+    grid-row: auto;
+    padding-top: 0;
+  }
+
   .data-stats {
     grid-template-columns: 1fr;
   }

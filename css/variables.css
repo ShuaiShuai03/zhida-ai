@@ -52,6 +52,11 @@
   --opacity-disabled: 0.55;
   --touch-target-size: 40px;
   --control-ring-size: 2px;
+  --control-height-compact: 32px;
+  --control-height-default: 36px;
+  --control-height-large: 40px;
+  --row-height-compact: 44px;
+  --row-height-default: 48px;
 
   /* ---- Sidebar ---- */
   --sidebar-width: 296px;
@@ -72,12 +77,12 @@
   --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.07), 0 2px 4px -1px rgba(0, 0, 0, 0.04);
   --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -2px rgba(0, 0, 0, 0.04);
   --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.03);
-  --shadow-soft: 0 10px 30px rgba(15, 23, 42, 0.06);
+  --shadow-soft: 0 8px 22px rgba(15, 23, 42, 0.055);
   --shadow-interactive: 0 8px 24px rgba(138, 79, 53, 0.18);
   --shadow-focus: 0 0 0 3px rgba(168, 104, 64, 0.2);
   --shadow-outline: 0 0 0 3px rgba(168, 104, 64, 0.15);
   --shadow-kbd: 0 1px 1px rgba(0, 0, 0, 0.06);
-  --shadow-interactive-soft: 0 8px 20px rgba(37, 99, 235, 0.16);
+  --shadow-interactive-soft: 0 6px 16px rgba(138, 79, 53, 0.16);
 
   /* ---- Warm Composer ---- */
   --composer-page-bg:
@@ -100,8 +105,8 @@
   --composer-stop: #a84d34;
   --composer-busy: #b96f3d;
   --composer-ready: #6f8f64;
-  --composer-shadow: 0 22px 60px rgba(74, 48, 30, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.8);
-  --composer-shadow-focus: 0 24px 70px rgba(74, 48, 30, 0.18), 0 0 0 5px rgba(168, 104, 64, 0.13);
+  --composer-shadow: 0 16px 42px rgba(74, 48, 30, 0.13), inset 0 1px 0 rgba(255, 255, 255, 0.82);
+  --composer-shadow-focus: 0 18px 48px rgba(74, 48, 30, 0.15), 0 0 0 4px rgba(168, 104, 64, 0.12);
   --composer-focus-ring: 0 0 0 4px rgba(168, 104, 64, 0.2);
 }
 

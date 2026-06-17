@@ -403,6 +403,32 @@ async function saveConfig(port, apiBaseUrl, apiKey = 'server-secret') {
   });
 }
 
+test('server module can be imported and started on a caller-owned loopback port', async () => {
+  const serverModule = await import(`../server/server.js?lifecycle=${Date.now()}`);
+  const created = serverModule.createZhidaServer();
+  assert.equal(created.listening, false);
+
+  const server = await serverModule.startServer({
+    host: '127.0.0.1',
+    port: 0,
+    logStart: false,
+  });
+
+  try {
+    const address = server.address();
+    assert.equal(typeof address, 'object');
+    assert.equal(address.address, '127.0.0.1');
+    assert.equal(address.family, 'IPv4');
+    assert.equal(Number.isInteger(address.port), true);
+
+    const response = await fetch(`http://127.0.0.1:${address.port}/index.html`);
+    assert.equal(response.status, 200);
+  } finally {
+    await serverModule.stopServer(server);
+    await serverModule.stopServer(created);
+  }
+});
+
 test('config save requires encryption secret and unknown api paths are 404', async () => {
   const port = await freePort();
   const configDir = await mkdtemp(join(tmpdir(), 'zhida-config-test-'));

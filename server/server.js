@@ -1136,41 +1136,83 @@ async function getStartupConfigStatus() {
   }
 }
 
-const server = createServer((req, res) => {
-  logEvent('info', 'request', {
-    method: req.method,
-    path: getRequestPath(req),
+export function createZhidaServer() {
+  return createServer((req, res) => {
+    logEvent('info', 'request', {
+      method: req.method,
+      path: getRequestPath(req),
+    });
+    if (rejectUntrustedBrowserApiRequest(req, res)) {
+      return;
+    }
+    if (rejectOversizedApiRequest(req, res)) {
+      return;
+    }
+    if (req.method === 'GET' && req.url === '/api/config/status') {
+      handleConfigStatus(req, res);
+      return;
+    }
+    if (req.method === 'PUT' && req.url === '/api/config') {
+      handleConfigSave(req, res);
+      return;
+    }
+    const upstreamPath = getUpstreamPath(req);
+    if (upstreamPath) {
+      handleProxy(req, res, upstreamPath);
+      return;
+    }
+    if (req.url?.startsWith('/api/')) {
+      logNotFound(req);
+      sendJson(res, 404, { error: { message: 'Not Found' } });
+      return;
+    }
+    handleStatic(req, res);
   });
-  if (rejectUntrustedBrowserApiRequest(req, res)) {
-    return;
-  }
-  if (rejectOversizedApiRequest(req, res)) {
-    return;
-  }
-  if (req.method === 'GET' && req.url === '/api/config/status') {
-    handleConfigStatus(req, res);
-    return;
-  }
-  if (req.method === 'PUT' && req.url === '/api/config') {
-    handleConfigSave(req, res);
-    return;
-  }
-  const upstreamPath = getUpstreamPath(req);
-  if (upstreamPath) {
-    handleProxy(req, res, upstreamPath);
-    return;
-  }
-  if (req.url?.startsWith('/api/')) {
-    logNotFound(req);
-    sendJson(res, 404, { error: { message: 'Not Found' } });
-    return;
-  }
-  handleStatic(req, res);
-});
+}
 
-server.listen(PORT, HOST, async () => {
-  logEvent('info', 'server_start', {
-    port: PORT,
-    config_status: await getStartupConfigStatus(),
+export async function startServer({ host = HOST, port = PORT, logStart = true } = {}) {
+  const server = createZhidaServer();
+  await new Promise((resolveListen, rejectListen) => {
+    server.once('error', rejectListen);
+    server.listen(port, host, () => {
+      server.off('error', rejectListen);
+      resolveListen();
+    });
   });
-});
+
+  if (logStart) {
+    const address = server.address();
+    logEvent('info', 'server_start', {
+      port: typeof address === 'object' && address ? address.port : port,
+      config_status: await getStartupConfigStatus(),
+    });
+  }
+
+  return server;
+}
+
+export async function stopServer(server) {
+  if (!server?.listening) return;
+  await new Promise((resolveClose, rejectClose) => {
+    server.close((err) => {
+      if (err) {
+        rejectClose(err);
+        return;
+      }
+      resolveClose();
+    });
+  });
+}
+
+function isMainModule() {
+  return process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+}
+
+if (isMainModule()) {
+  startServer().catch((err) => {
+    logEvent('error', 'server_start_error', {
+      error: getErrorMessageForLog(err),
+    });
+    process.exit(1);
+  });
+}

@@ -6,9 +6,14 @@ import sys
 
 
 ROOT = Path(__file__).resolve().parent.parent
+EXCLUDED_DIR_NAMES = {
+    ".git",
+    "dist",
+    "node_modules",
+}
 DOC_FILES = sorted(
     path for path in ROOT.rglob("*.md")
-    if ".git/" not in path.as_posix()
+    if not EXCLUDED_DIR_NAMES.intersection(path.relative_to(ROOT).parts)
 )
 LINK_RE = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
 FORBIDDEN_PATTERNS = (

@@ -27,6 +27,11 @@ jobs:
         run: |
           for f in \
             index.html \
+            package.json \
+            package-lock.json \
+            css/desktop.css \
+            desktop/config.js \
+            desktop/main.js \
             js/app.js \
             js/api.js \
             js/config.js \
@@ -107,7 +112,7 @@ jobs:
 
       - name: Validate JavaScript syntax
         run: |
-          for f in js/*.js; do
+          for f in js/*.js desktop/*.js server/server.js; do
             node --check "$f"
           done
 

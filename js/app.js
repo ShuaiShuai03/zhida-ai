@@ -158,6 +158,13 @@ function cleanup() {
   cleanupUI();
 }
 
+function applyDesktopMode() {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('desktop') !== '1') return;
+  document.documentElement.dataset.desktopApp = 'true';
+  document.body.classList.add('desktop-app');
+}
+
 // ---- Pending Attachments ----
 /** @type {Array<{type: string, name: string, content?: string, dataUrl?: string}>} */
 let pendingAttachments = [];
@@ -495,6 +502,8 @@ async function saveServerApiConfigFromForm({ requireKey = false } = {}) {
  * Boot the application.
  */
 async function init() {
+  applyDesktopMode();
+
   // Initialize event controller for cleanup
   initEventController();
   registerGlobalErrorHandlers();

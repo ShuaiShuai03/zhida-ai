@@ -18,10 +18,11 @@ let mediaQueryHandler = null;
  */
 export function initTheme() {
   const saved = loadTheme();
+  const defaultTheme = document.documentElement.dataset.desktopApp === 'true' ? 'light' : 'dark';
   if (saved === 'dark' || saved === 'light') {
     currentTheme = saved;
   } else {
-    currentTheme = 'dark';
+    currentTheme = defaultTheme;
   }
   applyTheme(currentTheme, false);
 
@@ -29,7 +30,7 @@ export function initTheme() {
   mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
   mediaQueryHandler = () => {
     if (!loadTheme()) {
-      currentTheme = 'dark';
+      currentTheme = defaultTheme;
       applyTheme(currentTheme, true);
     }
   };

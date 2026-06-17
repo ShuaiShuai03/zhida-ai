@@ -1,0 +1,68 @@
+{
+  "name": "zhida-ai",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A local-first OpenAI-compatible Q&A workspace with a Windows desktop shell.",
+  "main": "desktop/main.js",
+  "scripts": {
+    "start": "node server/server.js",
+    "test": "node --test tests/*.test.mjs",
+    "desktop": "electron .",
+    "desktop:dev": "electron .",
+    "desktop:dir": "electron-builder --dir",
+    "desktop:build": "electron-builder --win --x64"
+  },
+  "devDependencies": {
+    "electron": "^42.4.1",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "com.zhida.ai",
+    "productName": "智答 AI",
+    "asar": true,
+    "directories": {
+      "output": "dist/desktop"
+    },
+    "files": [
+      "index.html",
+      "css/**",
+      "js/**",
+      "assets/**",
+      "server/server.js",
+      "desktop/**",
+      "package.json",
+      "!**/.env",
+      "!**/.env.*",
+      "!**/.zhida-data/**",
+      "!**/server/data/**",
+      "!**/*.enc.json",
+      "!**/logs/**",
+      "!**/*.log",
+      "!tests/**",
+      "!specs/**",
+      "!scripts/**",
+      "!Dockerfile*",
+      "!docker-compose*.yml",
+      "!.github/**",
+      "!.codex/**",
+      "!.agents/**"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false
+    }
+  }
+}

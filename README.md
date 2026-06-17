@@ -5,8 +5,8 @@
 </p>
 
 <p align="center">
-  <strong>本地优先、同源代理、零前端构建依赖的 AI 对话工作台。</strong><br>
-  支持 OpenAI-compatible Chat Completions / Responses、多模型会话、联网搜索、流式输出、文件输入和安全的服务端密钥保存。
+  <strong>本地优先、同源代理、可作为 Windows 桌面应用运行的 AI 对话工作台。</strong><br>
+  支持 OpenAI-compatible Chat Completions / Responses、多模型会话、联网搜索、流式输出、文件输入和安全的服务端/桌面端密钥保存。
 </p>
 
 <p align="center">
@@ -30,6 +30,7 @@
 - [核心特性](#核心特性)
 - [适用场景](#适用场景)
 - [快速开始](#快速开始)
+- [Windows 桌面应用](#windows-桌面应用)
 - [安全模型](#安全模型)
 - [架构与请求流](#架构与请求流)
 - [Docker 部署](#docker-部署)
@@ -79,6 +80,8 @@
 
 - Node 后端同源代理转发上游请求，浏览器不会直接访问上游 API。
 - `PUT /api/config` 使用 `ZHIDA_CONFIG_SECRET` 派生 AES-256-GCM 密钥保存配置。
+- Windows 桌面模式使用 Electron 启动内部 `127.0.0.1` loopback 代理，不通过 `file://` 加载应用。
+- 桌面配置写入 Windows 用户数据目录，并使用 Electron `safeStorage` 保护本机安装级密钥。
 - 默认本地监听 `127.0.0.1`；Docker 代理默认只发布到宿主机回环地址。
 - 静态模式只用于界面预览，不提供真实聊天能力。
 - `/tests/smoke.html` 默认不暴露，只有 `ZHIDA_ENABLE_TEST_ROUTES=1` 时开放。
@@ -132,6 +135,40 @@ ZHIDA_CONFIG_SECRET="change-this-to-a-long-random-secret" bash scripts/start.sh 
 > [!TIP]
 > API 地址会在后端归一化，`https://api.openai.com` 和 `https://api.openai.com/v1` 都会正确映射到 `/v1/*` 上游路径。
 
+## Windows 桌面应用
+
+桌面壳使用 Electron + electron-builder。它不会用 `file://` 打开页面，而是在应用启动时创建内部 Node 同源代理，绑定到 `127.0.0.1` 的随机端口，然后加载 `http://127.0.0.1:<port>/?desktop=1`。这样现有 `/api/*` 安全边界、流式响应、停止生成、模型列表和配置保存逻辑都保持一致。
+
+### 开发启动
+
+桌面开发和打包使用 Electron `42.4.1`，需要 Node.js `22.12.0` 或更高版本；纯 Web/server 模式仍按 CI 覆盖 Node 20 和 Node 22。
+
+```powershell
+npm install
+npm run desktop
+```
+
+默认窗口大小为 `1440x900`，最小窗口为 `1280x800`。桌面模式会启用更接近 Windows productivity app 的工作区外壳，但仍使用真实的 `index.html`、`css/*.css` 和 `js/*.js` 功能代码。
+
+### 打包
+
+```powershell
+# 生成未安装的应用目录，适合本地验收
+npm run desktop:dir
+
+# 生成 Windows x64 NSIS 安装包
+npm run desktop:build
+```
+
+electron-builder 的打包白名单只包含运行所需的前端、server 和 desktop 文件，并显式排除 `.env`、`.zhida-data/`、`server/data/`、`*.enc.json`、日志、测试和开发资料。
+
+### 桌面安全模型
+
+- API key 仍只提交给同源后端代理，不进入 `localStorage`、前端请求头、导出 JSON、日志或静态资源。
+- 桌面模式把加密配置保存到 Electron `userData` 目录下的 `config.enc.json`，不写入仓库。
+- 用于保护配置的本机安装级密钥保存为 `desktop-secret.enc.json`，内容由 Electron `safeStorage` 保护；Windows 上由系统加密能力提供保护。
+- Renderer 关闭 Node integration，启用 context isolation、sandbox 和 webSecurity；外部导航会被拦截并交给系统浏览器。
+
 ## 安全模型
 
 > [!CAUTION]
@@ -143,6 +180,7 @@ ZHIDA_CONFIG_SECRET="change-this-to-a-long-random-secret" bash scripts/start.sh 
 | API key 存储 | API key 不进入 `localStorage`、前端请求头、备份 JSON 或静态资源。 |
 | 配置保存 | `PUT /api/config` 把 API 地址和密钥提交给同源 Node 后端。 |
 | 服务端加密 | 后端使用 `ZHIDA_CONFIG_SECRET` 派生 AES-256-GCM 密钥保存本地配置。 |
+| 桌面端配置 | Electron 使用 `safeStorage` 保护本机安装级密钥，并把配置写入 Windows 用户数据目录。 |
 | 默认监听 | 本地默认绑定 `127.0.0.1`。 |
 | Docker 暴露 | `docker-compose.proxy.yml` 默认发布到 `${ZHIDA_HOST_IP:-127.0.0.1}:${ZHIDA_HOST_PORT:-3000}`。 |
 | 静态资源白名单 | 服务端配置文件、后端源码、隐藏路径和测试页默认不会作为静态资源公开。 |
@@ -152,14 +190,19 @@ ZHIDA_CONFIG_SECRET="change-this-to-a-long-random-secret" bash scripts/start.sh 
 
 ## 架构与请求流
 
+Web 模式可以直接运行 `server/server.js`。桌面模式复用同一个 server 生命周期 API，由 Electron 主进程先启动内部 loopback 代理，再加载同源 HTTP 页面。
+
 ```mermaid
 flowchart LR
   Browser["Browser UI<br/>index.html + js + css"]
+  Desktop["Electron desktop shell<br/>BrowserWindow + userData config"]
   Proxy["Node same-origin proxy<br/>server/server.js"]
   Config["Encrypted config<br/>.zhida-data/config.enc.json or /data/config.enc.json"]
   Upstream["OpenAI-compatible API<br/>/v1/models<br/>/v1/chat/completions<br/>/v1/responses"]
   Static["Static preview only<br/>Pages / npx serve / python http.server"]
 
+  Desktop -->|starts 127.0.0.1 random port| Proxy
+  Desktop -->|loads http://127.0.0.1:<port>| Browser
   Browser -->|GET /| Proxy
   Browser -->|GET /api/config/status| Proxy
   Browser -->|PUT /api/config| Proxy
@@ -265,7 +308,7 @@ docker compose up -d
 python3 scripts/check_markdown.py
 
 # JavaScript 语法校验
-for f in js/*.js; do node --check "$f"; done; node --check server/server.js
+for f in js/*.js desktop/*.js server/server.js; do node --check "$f"; done
 
 # Shell 与 Python 脚本校验
 bash -n scripts/start.sh scripts/run_smoke.sh
@@ -273,6 +316,9 @@ python3 -m py_compile scripts/check_markdown.py scripts/mock_api.py
 
 # 纯逻辑和服务端单测
 node --test tests/*.test.mjs
+
+# 桌面打包配置检查
+npm run desktop:dir
 
 # 浏览器 smoke，需要本机可执行 google-chrome
 bash scripts/run_smoke.sh
@@ -287,9 +333,15 @@ git diff --check
 
 ```text
 zhida-ai/
+├── package.json
+├── package-lock.json
 ├── index.html
 ├── css/
+│   └── desktop.css
 ├── js/
+├── desktop/
+│   ├── config.js
+│   └── main.js
 ├── assets/
 │   ├── favicon.svg
 │   ├── readme/
@@ -311,6 +363,7 @@ zhida-ai/
 | 技术 | 用途 |
 | --- | --- |
 | HTML5 + CSS3 + ES Modules | 前端应用主体 |
+| Electron + electron-builder | Windows 桌面壳、本地开发启动和 NSIS 打包 |
 | marked.js | Markdown 解析 |
 | highlight.js | 代码高亮 |
 | KaTeX | 数学公式渲染 |

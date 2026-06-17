@@ -94,6 +94,8 @@ let globalErrorHandlersRegistered = false;
 let lastGlobalErrorMessage = '';
 let lastGlobalErrorTime = 0;
 const GLOBAL_ERROR_TOAST_DEDUPE_MS = 3000;
+const DIAGNOSTIC_EVENT_LIMIT = 8;
+const diagnosticEvents = [];
 
 /**
  * Initialize event controller for cleanup.
@@ -126,6 +128,12 @@ function showUnexpectedErrorToastOnce(errorMessage) {
 function logUnexpectedError(label, errorLike, meta = {}) {
   const stack = errorLike instanceof Error ? errorLike.stack : undefined;
   console.error(label, errorLike, stack, meta);
+  diagnosticEvents.unshift({
+    time: new Date().toLocaleString('zh-CN', { hour12: false }),
+    label,
+    message: getGlobalErrorMessage(errorLike),
+  });
+  diagnosticEvents.splice(DIAGNOSTIC_EVENT_LIMIT);
 }
 
 function registerGlobalErrorHandlers() {
@@ -456,6 +464,78 @@ async function refreshConfigStatus({ silent = true } = {}) {
     if (!silent) showToast(err.message || '读取 API 配置状态失败', 'error');
     return { configured: false, apiBaseUrl: '' };
   }
+}
+
+function renderDiagnosticList(rows) {
+  return rows.map(([label, value]) => `
+    <dt>${escapeHTML(label)}</dt>
+    <dd>${escapeHTML(value ?? '未设置')}</dd>
+  `).join('');
+}
+
+function renderDiagnostics() {
+  const grid = $('#diagnostics-grid');
+  if (!grid) return;
+
+  const storage = getStorageSummary();
+  const selectedModel = state.selectedModel;
+  const isDesktop = document.documentElement.dataset.desktopApp === 'true';
+  const recentEvents = diagnosticEvents.length > 0
+    ? diagnosticEvents.map((item) => `${item.time} ${item.label} ${item.message}`).join('\n')
+    : '暂无前端异常记录';
+
+  const cards = [
+    {
+      title: '后端连接',
+      rows: [
+        ['连接状态', state.backendAvailable ? '已连接' : '未连接'],
+        ['配置状态', state.isApiConfigured ? '已配置' : '未配置'],
+        ['API 地址', state.apiBaseUrl || '未设置'],
+      ],
+    },
+    {
+      title: '工作区',
+      rows: [
+        ['对话数量', String(storage.conversationCount)],
+        ['自定义模板', String(storage.promptTemplateCount)],
+        ['本地存储', `${storage.usageMB.toFixed(2)} MB`],
+      ],
+    },
+    {
+      title: '模型',
+      rows: [
+        ['当前模型', selectedModel?.name || selectedModel?.id || '未选择'],
+        ['模型数量', String(state.models.length)],
+        ['网络搜索', selectedModel?.supportsResponses ? '可用' : '不可用'],
+      ],
+    },
+    {
+      title: '运行环境',
+      rows: [
+        ['桌面模式', isDesktop ? '是' : '否'],
+        ['在线状态', navigator.onLine ? '在线' : '离线'],
+        ['主题', document.documentElement.dataset.theme || '跟随系统'],
+      ],
+    },
+  ];
+
+  grid.innerHTML = `
+    ${cards.map((card) => `
+      <section class="diagnostics-card">
+        <h4 class="diagnostics-card__title">${escapeHTML(card.title)}</h4>
+        <dl class="diagnostics-list">${renderDiagnosticList(card.rows)}</dl>
+      </section>
+    `).join('')}
+    <section class="diagnostics-card diagnostics-card--wide">
+      <h4 class="diagnostics-card__title">最近前端异常</h4>
+      <pre class="diagnostics-log">${escapeHTML(recentEvents)}</pre>
+    </section>
+  `;
+}
+
+function openDiagnosticsModal() {
+  renderDiagnostics();
+  openModal('diagnostics-modal');
 }
 
 async function saveServerApiConfigFromForm({ requireKey = false } = {}) {
@@ -950,6 +1030,7 @@ function bindHeaderEvents() {
   const sidebarToggle = $('#sidebar-toggle');
   const themeToggle = $('#theme-toggle');
   const settingsBtn = $('#settings-btn');
+  const diagnosticsBtn = $('#diagnostics-btn');
   const runtimeSettingsBtn = $('#runtime-settings-btn');
   const runtimeSettingsCloseBtn = $('#runtime-settings-close-btn');
   const runtimeBackdrop = $('.runtime-backdrop');
@@ -969,6 +1050,12 @@ function bindHeaderEvents() {
   if (settingsBtn) {
     settingsBtn.addEventListener('click', () => {
       openSettingsModal();
+    }, { signal });
+  }
+
+  if (diagnosticsBtn) {
+    diagnosticsBtn.addEventListener('click', () => {
+      openDiagnosticsModal();
     }, { signal });
   }
 

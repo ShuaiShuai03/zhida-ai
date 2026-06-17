@@ -797,6 +797,8 @@
         '#settings-max-tokens',
         '#settings-save-btn',
         '#fetch-models-btn',
+        '#diagnostics-btn',
+        '#diagnostics-modal',
         '#data-management-btn',
         '#prompt-templates-btn',
       ], '关键设置/配置控件');
@@ -918,6 +920,24 @@
       await waitFor(
         () => doc.querySelector('#settings-modal')?.getAttribute('aria-hidden') === 'true',
         'settings modal close'
+      );
+
+      clickBySelector('#diagnostics-btn', doc, '打开诊断面板');
+      await waitFor(
+        () => doc.querySelector('#diagnostics-modal')?.classList.contains('visible'),
+        'diagnostics modal open'
+      );
+      const diagnosticsText = safeText('#diagnostics-modal', doc);
+      if (!diagnosticsText.includes('后端连接') || !diagnosticsText.includes('工作区')) {
+        fail('diagnostics modal should show runtime sections');
+      }
+      if (diagnosticsText.includes('smoke-key')) {
+        fail('diagnostics modal must not expose the API key');
+      }
+      clickBySelector('#diagnostics-modal .modal__close', doc, '关闭诊断面板');
+      await waitFor(
+        () => doc.querySelector('#diagnostics-modal')?.getAttribute('aria-hidden') === 'true',
+        'diagnostics modal close'
       );
 
       clickBySelector('#settings-btn', doc, '再次打开设置面板');

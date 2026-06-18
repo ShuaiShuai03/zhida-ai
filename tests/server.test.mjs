@@ -505,6 +505,20 @@ test('api requests reject cross-site browser contexts', async () => {
       error: { message: 'Cross-site API requests are not allowed' },
     });
 
+    const simpleCrossSiteWrite = await sendRawRequest(port, {
+      method: 'POST',
+      path: '/api/chat/completions',
+      headers: {
+        'Content-Type': 'text/plain',
+        'Content-Length': '5',
+      },
+      chunks: ['hello'],
+    });
+    assert.equal(simpleCrossSiteWrite.status, 403);
+    assert.deepEqual(JSON.parse(simpleCrossSiteWrite.body), {
+      error: { message: 'Cross-site API requests are not allowed' },
+    });
+
     const crossOrigin = await sendRawRequest(port, {
       method: 'GET',
       path: '/api/config/status',

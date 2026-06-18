@@ -178,13 +178,31 @@ function getRequestHost(req) {
   return getFirstHeader(req.headers.host).split(',')[0].trim().toLowerCase();
 }
 
+function isUnsafeApiMethod(req) {
+  return ['POST', 'PUT', 'PATCH', 'DELETE'].includes(String(req.method || '').toUpperCase());
+}
+
+function getRequestContentType(req) {
+  return getFirstHeader(req.headers['content-type']).split(';')[0].trim().toLowerCase();
+}
+
+function isBrowserSimpleContentType(req) {
+  return [
+    'application/x-www-form-urlencoded',
+    'multipart/form-data',
+    'text/plain',
+  ].includes(getRequestContentType(req));
+}
+
 function isUntrustedBrowserApiRequest(req) {
   if (!req.url?.startsWith('/api/')) return false;
   const fetchSite = getFirstHeader(req.headers['sec-fetch-site']).trim().toLowerCase();
   if (fetchSite === 'cross-site') return true;
 
   const origin = getFirstHeader(req.headers.origin).trim();
-  if (!origin) return false;
+  if (!origin) {
+    return !fetchSite && isUnsafeApiMethod(req) && isBrowserSimpleContentType(req);
+  }
   const originHost = getOriginHost(origin);
   if (!originHost) return true;
   const requestHost = getRequestHost(req);

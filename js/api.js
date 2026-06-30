@@ -82,19 +82,12 @@ export function getRequestRouteDecision({ model, webSearchEnabled, reasoningEffo
     };
   }
 
-  const includeReasoning = Boolean(reasoningEffort && model.supportsReasoningEffort);
+  const includeReasoning = Boolean(
+    reasoningEffort
+    && reasoningEffort !== 'none'
+    && model.supportsReasoningEffort
+  );
   const supportsChatCompletions = model.supportsChatCompletions !== false;
-
-  // When the model explicitly lacks Responses support, gracefully downgrade
-  // to Chat Completions instead of blocking the request entirely.
-  if (webSearchEnabled && !model.supportsWebSearch && supportsChatCompletions) {
-    return {
-      route: 'chat',
-      reason: 'chat_completions',
-      downgraded: 'web_search_unavailable',
-      requestOptions: {},
-    };
-  }
 
   if (!supportsChatCompletions && !model.supportsResponses) {
     return {
@@ -109,19 +102,19 @@ export function getRequestRouteDecision({ model, webSearchEnabled, reasoningEffo
       route: 'responses',
       reason: 'responses_only',
       requestOptions: {
-        includeWebSearch: Boolean(webSearchEnabled && model.supportsWebSearch),
+        includeWebSearch: false,
         includeReasoning,
         webSearchContextSize: normalizeWebSearchContextSize(webSearchContextSize),
       },
     };
   }
 
-  if (webSearchEnabled || includeReasoning) {
+  if (includeReasoning) {
     return {
       route: 'responses',
-      reason: webSearchEnabled ? 'web_search' : 'reasoning_effort',
+      reason: 'reasoning_effort',
       requestOptions: {
-        includeWebSearch: Boolean(webSearchEnabled && model.supportsWebSearch),
+        includeWebSearch: false,
         includeReasoning,
         webSearchContextSize: normalizeWebSearchContextSize(webSearchContextSize),
       },
@@ -177,6 +170,51 @@ export async function streamModelResponse(messages, callbacks) {
   }
 
   return streamChatCompletion(messages, callbacks);
+}
+
+export async function fetchStandaloneWebSearch(query, options = {}) {
+  const contextSize = normalizeWebSearchContextSize(
+    options.contextSize || state.webSearchContextSize || DEFAULT_WEB_SEARCH_CONTEXT_SIZE
+  );
+  const response = await fetch('/api/web/search', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ query, contextSize }),
+  });
+
+  if (!response.ok) {
+    const message = await parseApiError(response, `联网检索失败 (${response.status})`);
+    throw new ChatError(message, response.status === 400 ? 'bad_request' : 'server');
+  }
+  if (!isJsonResponse(response)) {
+    throw createBackendUnavailableError();
+  }
+  const payload = await response.json().catch(() => {
+    throw new ChatError('联网检索响应不是合法 JSON', 'parse');
+  });
+  return normalizeStandaloneWebSearchPayload(payload);
+}
+
+function normalizeStandaloneWebSearchPayload(payload) {
+  const results = Array.isArray(payload?.results) ? payload.results : [];
+  const citations = Array.isArray(payload?.citations) ? payload.citations : [];
+  return {
+    query: typeof payload?.query === 'string' ? payload.query : '',
+    results: results
+      .map((result) => ({
+        title: typeof result?.title === 'string' ? result.title : '',
+        url: typeof result?.url === 'string' ? result.url : '',
+        snippet: typeof result?.snippet === 'string' ? result.snippet : '',
+        text: typeof result?.text === 'string' ? result.text : '',
+      }))
+      .filter((result) => result.url),
+    citations: citations
+      .map((citation) => ({
+        title: typeof citation?.title === 'string' ? citation.title : '',
+        url: typeof citation?.url === 'string' ? citation.url : '',
+      }))
+      .filter((citation) => citation.url),
+  };
 }
 
 /**

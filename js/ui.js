@@ -476,14 +476,14 @@ export function updateComposerCapabilityControls() {
   const webSearchContextControl = $('.search-context-control');
   const model = state.selectedModel;
   const modelUnavailable = Boolean(model?.unavailable);
-  const webSearchSupported = Boolean(model?.supportsWebSearch);
+  const backendUnavailable = state.backendAvailable === false;
   const reasoningSupported = Boolean(model?.supportsReasoningEffort);
-  const webSearchDisabled = modelUnavailable || !webSearchSupported;
+  const webSearchDisabled = modelUnavailable || backendUnavailable;
   const searchContextDisabled = webSearchDisabled || !state.webSearchEnabled;
   const reasoningDisabled = modelUnavailable || !reasoningSupported;
 
   // Preserve the user's stored preference, but only expose controls when the
-  // selected model can actually use the corresponding Responses capability.
+  // app can reach the same-origin backend that performs standalone retrieval.
   if (webSearchToggle) {
     webSearchToggle.checked = !webSearchDisabled && Boolean(state.webSearchEnabled);
     webSearchToggle.disabled = webSearchDisabled;
@@ -493,9 +493,9 @@ export function updateComposerCapabilityControls() {
     webSearchControl.classList.toggle('disabled', webSearchDisabled);
     webSearchControl.title = modelUnavailable
       ? '请先选择一个可用模型'
-      : webSearchSupported
-      ? '使用 Responses API 的网络搜索工具'
-      : '当前模型不支持网络搜索';
+      : backendUnavailable
+      ? '需要先启动 Node 后端代理'
+      : '使用后端联网检索';
   }
   if (reasoningSelect) {
     reasoningSelect.value = state.reasoningEffort;
@@ -522,22 +522,22 @@ export function updateComposerCapabilityControls() {
     webSearchContextSelect.setAttribute('aria-disabled', String(searchContextDisabled));
     webSearchContextSelect.title = modelUnavailable
       ? '请先选择一个可用模型'
-      : webSearchSupported && state.webSearchEnabled
-      ? '设置网络搜索上下文范围'
-      : webSearchSupported
-      ? '开启网络搜索后可设置搜索范围'
-      : '当前模型不支持网络搜索';
+      : backendUnavailable
+      ? '需要先启动 Node 后端代理'
+      : state.webSearchEnabled
+      ? '设置联网检索范围'
+      : '开启联网后可设置检索范围';
     syncCustomSelect(webSearchContextSelect);
   }
   if (webSearchContextControl) {
     webSearchContextControl.classList.toggle('disabled', searchContextDisabled);
     webSearchContextControl.title = modelUnavailable
       ? '请先选择一个可用模型'
-      : webSearchSupported && state.webSearchEnabled
-      ? '设置网络搜索上下文范围'
-      : webSearchSupported
-      ? '开启网络搜索后可设置搜索范围'
-      : '当前模型不支持网络搜索';
+      : backendUnavailable
+      ? '需要先启动 Node 后端代理'
+      : state.webSearchEnabled
+      ? '设置联网检索范围'
+      : '开启联网后可设置检索范围';
   }
   updateRuntimeSettingsSummary();
   updateRuntimeTemperatureUI();
@@ -550,7 +550,7 @@ export function updateRuntimeSettingsSummary() {
   const model = state.selectedModel;
   if (summary) {
     const capabilityText = [
-      model.supportsWebSearch ? '支持联网' : '不支持联网',
+      state.backendAvailable === false ? '联网不可用' : '联网由后端提供',
       model.supportsReasoningEffort ? '支持推理深度' : '无推理深度',
     ].join(' · ');
     summary.innerHTML = `
@@ -566,7 +566,7 @@ export function updateRuntimeSettingsSummary() {
       : 'Chat';
   }
   if (composerModelPill) {
-    const searchState = model.supportsWebSearch && state.webSearchEnabled ? '联网开启' : '联网关闭';
+    const searchState = state.webSearchEnabled && state.backendAvailable !== false ? '联网开启' : '联网关闭';
     composerModelPill.textContent = `${model.name} · ${searchState}`;
     composerModelPill.title = `${model.name} · ${model.description || searchState}`;
   }

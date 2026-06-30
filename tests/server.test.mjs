@@ -404,6 +404,95 @@ async function saveConfig(port, apiBaseUrl, apiKey = 'server-secret') {
   });
 }
 
+function buildSearchResultHtml(results) {
+  return results.map((result) => `
+    <div class="result">
+      <a class="result__a" href="${result.url}">${result.title}</a>
+      <a class="result__snippet">${result.snippet || ''}</a>
+    </div>
+  `).join('\n');
+}
+
+function makeStandaloneSearchFetchMock({ searchHtml, pages = new Map(), failSearch = false }) {
+  const originalFetch = globalThis.fetch.bind(globalThis);
+  const calls = [];
+
+  const mockFetch = async (resource, options = {}) => {
+    const rawUrl = typeof resource === 'string' ? resource : resource?.url;
+    const url = new URL(rawUrl);
+    calls.push(url.toString());
+
+    if (url.hostname === '127.0.0.1' && url.pathname.startsWith('/api/')) {
+      return originalFetch(resource, options);
+    }
+
+    if (url.hostname === 'html.duckduckgo.com') {
+      if (failSearch) throw new Error('search fixture failed');
+      return new Response(searchHtml, {
+        status: 200,
+        headers: { 'Content-Type': 'text/html; charset=utf-8' },
+      });
+    }
+
+    const page = pages.get(url.toString())
+      ?? pages.get(`${url.protocol}//${url.host}${url.pathname}`)
+      ?? null;
+    if (!page) {
+      return new Response('not found', {
+        status: 404,
+        headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+      });
+    }
+    if (page.redirect) {
+      return new Response('', {
+        status: page.status || 302,
+        headers: { Location: page.redirect },
+      });
+    }
+    if (page.error) throw page.error;
+    return new Response(page.body || '', {
+      status: page.status || 200,
+      headers: { 'Content-Type': page.contentType || 'text/html; charset=utf-8' },
+    });
+  };
+
+  return { originalFetch, mockFetch, calls };
+}
+
+async function withStandaloneSearchServer(fetchMock, callback) {
+  const previousFetch = globalThis.fetch;
+  const previousTestFetchLimitedText = globalThis.__ZHIDA_TEST_FETCH_LIMITED_TEXT;
+  const previousEnableTestFetchFixtures = process.env.ZHIDA_ENABLE_TEST_FETCH_FIXTURES;
+  globalThis.fetch = fetchMock;
+  globalThis.__ZHIDA_TEST_FETCH_LIMITED_TEXT = fetchMock;
+  process.env.ZHIDA_ENABLE_TEST_FETCH_FIXTURES = '1';
+  const serverModule = await import(`../server/server.js?standalone-search=${Date.now()}-${Math.random()}`);
+  const server = await serverModule.startServer({
+    host: '127.0.0.1',
+    port: 0,
+    logStart: false,
+  });
+
+  try {
+    const address = server.address();
+    assert.equal(typeof address, 'object');
+    await callback(address.port);
+  } finally {
+    await serverModule.stopServer(server);
+    globalThis.fetch = previousFetch;
+    if (previousTestFetchLimitedText === undefined) {
+      delete globalThis.__ZHIDA_TEST_FETCH_LIMITED_TEXT;
+    } else {
+      globalThis.__ZHIDA_TEST_FETCH_LIMITED_TEXT = previousTestFetchLimitedText;
+    }
+    if (previousEnableTestFetchFixtures === undefined) {
+      delete process.env.ZHIDA_ENABLE_TEST_FETCH_FIXTURES;
+    } else {
+      process.env.ZHIDA_ENABLE_TEST_FETCH_FIXTURES = previousEnableTestFetchFixtures;
+    }
+  }
+}
+
 test('server module can be imported and started on a caller-owned loopback port', async () => {
   const serverModule = await import(`../server/server.js?lifecycle=${Date.now()}`);
   const created = serverModule.createZhidaServer();
@@ -669,6 +758,133 @@ test('config save rejects request bodies larger than 256KB before parsing', asyn
     closeChild(proxy);
     await rm(configDir, { recursive: true, force: true });
   }
+});
+
+test('/api/web/search validates input and returns bounded standalone results', async () => {
+  const publicUrls = Array.from(
+    { length: 7 },
+    (_, index) => `https://93.184.216.34/page-${index + 1}`
+  );
+  const longText = `Alpha ${'x'.repeat(5200)} Omega`;
+  const pages = new Map(publicUrls.slice(0, 3).map((url, index) => [url, {
+    body: `<html><head><title>Fixture ${index + 1}</title><script>secret()</script></head><body><main>${longText}</main></body></html>`,
+  }]));
+  const fetchFixture = makeStandaloneSearchFetchMock({
+    searchHtml: buildSearchResultHtml(publicUrls.map((url, index) => ({
+      title: `Result ${index + 1}`,
+      url,
+      snippet: `Snippet ${index + 1}`,
+    }))),
+    pages,
+  });
+
+  await withStandaloneSearchServer(fetchFixture.mockFetch, async (port) => {
+    const invalidQuery = await fetch(`http://127.0.0.1:${port}/api/web/search`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: 'x'.repeat(301), contextSize: 'medium' }),
+    });
+    assert.equal(invalidQuery.status, 400);
+
+    const invalidContext = await fetch(`http://127.0.0.1:${port}/api/web/search`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: 'valid query', contextSize: 'wide' }),
+    });
+    assert.equal(invalidContext.status, 400);
+
+    const malformedJson = await fetch(`http://127.0.0.1:${port}/api/web/search`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{"query"',
+    });
+    assert.equal(malformedJson.status, 400);
+
+    const tooLarge = await sendRawRequest(port, {
+      method: 'POST',
+      path: '/api/web/search',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': String(9 * 1024),
+      },
+      chunks: [Buffer.alloc(9 * 1024, 'x')],
+    });
+    assert.equal(tooLarge.status, 413);
+
+    const response = await fetch(`http://127.0.0.1:${port}/api/web/search`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: 'bounded query', contextSize: 'high' }),
+    });
+
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    assert.equal(payload.query, 'bounded query');
+    assert.equal(payload.results.length, 6);
+    assert.equal(payload.citations.length, 6);
+    assert.equal(payload.results.filter((result) => result.text).length, 3);
+    assert.ok(payload.results.every((result) => result.text.length <= 4000));
+    assert.ok(payload.results.reduce((sum, result) => sum + result.text.length, 0) <= 12000);
+    assert.doesNotMatch(payload.results[0].text, /secret/);
+  });
+});
+
+test('/api/web/search degrades to empty results when search fetch fails', async () => {
+  const fetchFixture = makeStandaloneSearchFetchMock({
+    searchHtml: '',
+    failSearch: true,
+  });
+
+  await withStandaloneSearchServer(fetchFixture.mockFetch, async (port) => {
+    const response = await fetch(`http://127.0.0.1:${port}/api/web/search`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: 'provider down', contextSize: 'low' }),
+    });
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), {
+      query: 'provider down',
+      results: [],
+      citations: [],
+    });
+  });
+});
+
+test('/api/web/search rejects private result URLs and redirects before crawling', async () => {
+  const safeUrl = 'https://93.184.216.34/safe';
+  const redirectUrl = 'https://93.184.216.34/redirect';
+  const fetchFixture = makeStandaloneSearchFetchMock({
+    searchHtml: buildSearchResultHtml([
+      { title: 'Localhost', url: 'http://localhost/admin', snippet: 'blocked' },
+      { title: 'Loopback', url: 'http://127.0.0.1:5000/admin', snippet: 'blocked' },
+      { title: 'Private', url: 'http://10.0.0.2/admin', snippet: 'blocked' },
+      { title: 'Redirect', url: redirectUrl, snippet: 'redirects private' },
+      { title: 'Safe', url: safeUrl, snippet: 'safe snippet' },
+    ]),
+    pages: new Map([
+      [redirectUrl, { redirect: 'http://127.0.0.1:5000/private' }],
+      [safeUrl, { body: '<html><body>Safe public page text</body></html>' }],
+    ]),
+  });
+
+  await withStandaloneSearchServer(fetchFixture.mockFetch, async (port) => {
+    const response = await fetch(`http://127.0.0.1:${port}/api/web/search`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: 'ssrf query', contextSize: 'high' }),
+    });
+
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    assert.deepEqual(payload.results.map((result) => result.url), [redirectUrl, safeUrl]);
+    assert.equal(payload.results.find((result) => result.url === redirectUrl).text, '');
+    assert.match(payload.results.find((result) => result.url === safeUrl).text, /Safe public page text/);
+    assert.equal(
+      fetchFixture.calls.some((url) => url.includes('127.0.0.1:5000/private')),
+      false
+    );
+  });
 });
 
 test('chat proxy accepts a 2MB base64 image payload under the default body limit', async () => {

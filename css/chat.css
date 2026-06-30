@@ -592,7 +592,8 @@
 
 .message:hover .message__actions,
 .message:focus-within .message__actions,
-.message__bubble:focus-within .message__actions {
+.message__bubble:focus-within .message__actions,
+.message__actions:focus-within {
   opacity: 1;
   pointer-events: auto;
 }

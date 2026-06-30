@@ -2,8 +2,11 @@
 
 import { createReadStream, statSync } from 'node:fs';
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
-import { createServer } from 'node:http';
+import { createServer, request as httpRequest } from 'node:http';
+import { request as httpsRequest } from 'node:https';
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
+import { lookup } from 'node:dns/promises';
+import { isIP } from 'node:net';
 import { dirname, extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -56,6 +59,7 @@ const CONFIG_BODY_LIMIT_BYTES = 256 * 1024;
 const DEFAULT_PROXY_BODY_LIMIT_BYTES = 25 * 1024 * 1024;
 const PROXY_BODY_LIMIT_BYTES = readIntegerEnv('ZHIDA_PROXY_MAX_BODY_BYTES', String(DEFAULT_PROXY_BODY_LIMIT_BYTES));
 const OTHER_API_BODY_LIMIT_BYTES = 512 * 1024;
+const WEB_SEARCH_BODY_LIMIT_BYTES = 8 * 1024;
 const ENABLE_TEST_ROUTES = process.env.ZHIDA_ENABLE_TEST_ROUTES === '1';
 const CONFIG_VERSION = 1;
 const ENCRYPTION_ALGORITHM = 'aes-256-gcm';
@@ -72,6 +76,19 @@ const ALLOWED_RESPONSES_FIELDS = new Set([
 const ALLOWED_RESPONSES_TOOL_FIELDS = new Set(['type', 'search_context_size']);
 const ALLOWED_REASONING_EFFORTS = new Set(['none', 'minimal', 'low', 'medium', 'high', 'xhigh']);
 const ALLOWED_WEB_SEARCH_CONTEXT_SIZES = new Set(['low', 'medium', 'high']);
+const WEB_SEARCH_TIMEOUT_MS = 10_000;
+const WEB_SEARCH_QUERY_MAX_LENGTH = 300;
+const WEB_SEARCH_RESULT_LIMITS = {
+  low: { results: 2, pages: 1 },
+  medium: { results: 4, pages: 2 },
+  high: { results: 6, pages: 3 },
+};
+const WEB_SEARCH_PAGE_TEXT_MAX_CHARS = 4000;
+const WEB_SEARCH_TOTAL_TEXT_MAX_CHARS = 12000;
+const WEB_SEARCH_RESPONSE_MAX_BYTES = 512 * 1024;
+const WEB_CRAWL_RESPONSE_MAX_BYTES = 768 * 1024;
+const WEB_SEARCH_PROVIDER_URL = 'https://html.duckduckgo.com/html/';
+const WEB_SEARCH_USER_AGENT = 'ZhidaAI/0.1 standalone-search';
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -555,6 +572,7 @@ function getApiBodyLimit(req) {
   if (!req.url?.startsWith('/api/')) return null;
   const path = req.url.split('?')[0];
   if (path === '/api/config') return CONFIG_BODY_LIMIT_BYTES;
+  if (path === '/api/web/search') return WEB_SEARCH_BODY_LIMIT_BYTES;
   if (path === '/api/chat/completions' || path === '/api/responses') {
     return PROXY_BODY_LIMIT_BYTES;
   }
@@ -689,6 +707,495 @@ async function handleConfigSave(req, res) {
       error: getErrorMessageForLog(err, '保存配置失败'),
     });
   }
+}
+
+function normalizeWebSearchPayload(payload) {
+  if (!isPlainObject(payload)) {
+    throw new Error('Web search 请求体必须是对象');
+  }
+  if (typeof payload.query !== 'string') {
+    throw new Error('搜索查询不能为空');
+  }
+  const query = payload.query.trim();
+  if (!query) {
+    throw new Error('搜索查询不能为空');
+  }
+  if (query.length > WEB_SEARCH_QUERY_MAX_LENGTH) {
+    throw new Error(`搜索查询不能超过 ${WEB_SEARCH_QUERY_MAX_LENGTH} 字`);
+  }
+  const contextSize = payload.contextSize ?? 'medium';
+  if (!ALLOWED_WEB_SEARCH_CONTEXT_SIZES.has(contextSize)) {
+    throw new Error('搜索范围无效');
+  }
+  return { query, contextSize };
+}
+
+function createEmptyWebSearchPayload(query) {
+  return {
+    query,
+    results: [],
+    citations: [],
+  };
+}
+
+function getWebSearchLimits(contextSize) {
+  return WEB_SEARCH_RESULT_LIMITS[contextSize] || WEB_SEARCH_RESULT_LIMITS.medium;
+}
+
+async function handleWebSearch(req, res) {
+  const startedAt = Date.now();
+  let query = '';
+  try {
+    const body = await readJsonBody(req, WEB_SEARCH_BODY_LIMIT_BYTES);
+    const normalized = normalizeWebSearchPayload(body);
+    query = normalized.query;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => {
+      controller.abort(new Error('web_search_timeout'));
+    }, WEB_SEARCH_TIMEOUT_MS);
+    timeout.unref?.();
+
+    try {
+      const payload = await performStandaloneWebSearch(normalized.query, normalized.contextSize, {
+        signal: controller.signal,
+      });
+      sendJson(res, 200, payload);
+      logEvent('info', 'web_search_done', {
+        method: req.method,
+        path: getRequestPath(req),
+        query_length: normalized.query.length,
+        context_size: normalized.contextSize,
+        result_count: payload.results.length,
+        duration_ms: Date.now() - startedAt,
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
+  } catch (err) {
+    if (handleRequestBodyReadError(req, res, err)) {
+      return;
+    }
+    if (
+      err?.message === '请求体必须是合法 JSON'
+      || err?.message === 'Web search 请求体必须是对象'
+      || err?.message === '搜索查询不能为空'
+      || err?.message === `搜索查询不能超过 ${WEB_SEARCH_QUERY_MAX_LENGTH} 字`
+      || err?.message === '搜索范围无效'
+    ) {
+      sendError(res, 400, err.message);
+      return;
+    }
+
+    logEvent('warn', 'web_search_failed', {
+      method: req.method,
+      path: getRequestPath(req),
+      query_length: query.length || undefined,
+      error: getErrorMessageForLog(err, 'web_search_failed'),
+      duration_ms: Date.now() - startedAt,
+    });
+    sendJson(res, 200, createEmptyWebSearchPayload(query));
+  }
+}
+
+async function performStandaloneWebSearch(query, contextSize, { signal } = {}) {
+  const limits = getWebSearchLimits(contextSize);
+  let searchResults = [];
+  try {
+    searchResults = await fetchSearchResults(query, limits.results, signal);
+  } catch {
+    return createEmptyWebSearchPayload(query);
+  }
+
+  const results = [];
+  const seenUrls = new Set();
+  for (const result of searchResults) {
+    if (!result?.url || seenUrls.has(result.url)) continue;
+    try {
+      await assertPublicHttpUrl(new URL(result.url));
+    } catch {
+      continue;
+    }
+    seenUrls.add(result.url);
+    results.push({
+      title: result.title,
+      url: result.url,
+      snippet: result.snippet,
+      text: '',
+    });
+    if (results.length >= limits.results) break;
+  }
+
+  const crawledResults = await Promise.all(results.slice(0, limits.pages).map(async (result) => {
+    try {
+      const raw = await fetchLimitedText(result.url, {
+        signal,
+        maxBytes: WEB_CRAWL_RESPONSE_MAX_BYTES,
+        validateUrl: assertPublicHttpUrl,
+      });
+      return {
+        result,
+        text: extractPageText(raw).slice(0, WEB_SEARCH_PAGE_TEXT_MAX_CHARS),
+      };
+    } catch {
+      return { result, text: '' };
+    }
+  }));
+
+  let totalTextChars = 0;
+  for (const { result, text } of crawledResults) {
+    if (!text || totalTextChars >= WEB_SEARCH_TOTAL_TEXT_MAX_CHARS) {
+      result.text = '';
+      continue;
+    }
+    const remaining = WEB_SEARCH_TOTAL_TEXT_MAX_CHARS - totalTextChars;
+    result.text = text.slice(0, remaining);
+    totalTextChars += result.text.length;
+  }
+
+  return {
+    query,
+    results,
+    citations: results.map((result) => ({
+      title: result.title || result.url,
+      url: result.url,
+    })),
+  };
+}
+
+async function fetchSearchResults(query, limit, signal) {
+  const searchUrl = new URL(WEB_SEARCH_PROVIDER_URL);
+  searchUrl.searchParams.set('q', query);
+  const html = await fetchLimitedText(searchUrl.toString(), {
+    signal,
+    maxBytes: WEB_SEARCH_RESPONSE_MAX_BYTES,
+    headers: {
+      Accept: 'text/html,application/xhtml+xml',
+      'User-Agent': WEB_SEARCH_USER_AGENT,
+    },
+  });
+  return parseSearchResultsHtml(html, limit);
+}
+
+async function fetchLimitedText(url, options = {}) {
+  const {
+    signal,
+    maxBytes,
+    headers = {},
+    validateUrl,
+    maxRedirects = 3,
+  } = options;
+  let current = new URL(url);
+
+  for (let redirectCount = 0; redirectCount <= maxRedirects; redirectCount += 1) {
+    const requestHeaders = {
+      Accept: 'text/html,text/plain,application/xhtml+xml,application/xml;q=0.8,*/*;q=0.2',
+      'User-Agent': WEB_SEARCH_USER_AGENT,
+      ...headers,
+    };
+    const validation = validateUrl ? await validateUrl(current) : null;
+    const response = validation
+      ? await fetchResolvedPublicText(current, validation, {
+        signal,
+        maxBytes,
+        headers: requestHeaders,
+      })
+      : await fetch(current.toString(), {
+        method: 'GET',
+        redirect: 'manual',
+        signal,
+        headers: requestHeaders,
+      });
+
+    if (response.status >= 300 && response.status < 400 && response.headers.get('location')) {
+      if (redirectCount === maxRedirects) throw new Error('too_many_redirects');
+      current = new URL(response.headers.get('location'), current);
+      continue;
+    }
+
+    if (!response.ok) {
+      throw new Error(`fetch_failed_${response.status}`);
+    }
+    return typeof response.text === 'string'
+      ? response.text
+      : readResponseTextLimited(response, maxBytes);
+  }
+
+  throw new Error('too_many_redirects');
+}
+
+function getHeader(headers, name) {
+  const value = headers?.[name.toLowerCase()] ?? headers?.[name];
+  if (Array.isArray(value)) return value.join(', ');
+  return value === undefined ? null : String(value);
+}
+
+function getTestFetchLimitedText() {
+  if (process.env.ZHIDA_ENABLE_TEST_FETCH_FIXTURES !== '1') return null;
+  return typeof globalThis.__ZHIDA_TEST_FETCH_LIMITED_TEXT === 'function'
+    ? globalThis.__ZHIDA_TEST_FETCH_LIMITED_TEXT
+    : null;
+}
+
+function fetchResolvedPublicText(url, validation, { signal, maxBytes, headers = {} } = {}) {
+  const parsed = url instanceof URL ? url : new URL(String(url));
+  const address = validation?.addresses?.[0];
+  if (!address) throw new Error('host_not_resolvable');
+  const testFetchLimitedText = getTestFetchLimitedText();
+  if (testFetchLimitedText) {
+    return testFetchLimitedText(parsed.toString(), {
+      signal,
+      maxBytes,
+      headers,
+    });
+  }
+
+  const isHttps = parsed.protocol === 'https:';
+  const requestFn = isHttps ? httpsRequest : httpRequest;
+  const requestHeaders = {
+    ...headers,
+    Host: parsed.host,
+  };
+
+  return new Promise((resolveFetch, rejectFetch) => {
+    const req = requestFn({
+      hostname: address.address,
+      family: address.family,
+      port: parsed.port || (isHttps ? 443 : 80),
+      path: `${parsed.pathname}${parsed.search}`,
+      method: 'GET',
+      headers: requestHeaders,
+      servername: parsed.hostname,
+      signal,
+    }, (res) => {
+      const chunks = [];
+      let totalBytes = 0;
+      let settled = false;
+      const rejectOnce = (err) => {
+        if (settled) return;
+        settled = true;
+        req.destroy(err);
+        rejectFetch(err);
+      };
+
+      res.on('data', (chunk) => {
+        totalBytes += chunk.length;
+        if (Number.isFinite(maxBytes) && totalBytes > maxBytes) {
+          rejectOnce(new Error('response_too_large'));
+          return;
+        }
+        chunks.push(chunk);
+      });
+      res.on('end', () => {
+        if (settled) return;
+        settled = true;
+        const status = res.statusCode || 0;
+        resolveFetch({
+          status,
+          ok: status >= 200 && status < 300,
+          headers: {
+            get(name) {
+              return getHeader(res.headers, name);
+            },
+          },
+          text: Buffer.concat(chunks).toString('utf8'),
+        });
+      });
+      res.on('error', rejectOnce);
+    });
+
+    req.on('error', rejectFetch);
+    req.end();
+  });
+}
+
+async function readResponseTextLimited(response, maxBytes) {
+  if (!response.body) return response.text();
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  const chunks = [];
+  let totalBytes = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      totalBytes += value.length;
+      if (totalBytes > maxBytes) {
+        throw new Error('response_too_large');
+      }
+      chunks.push(decoder.decode(value, { stream: true }));
+    }
+    chunks.push(decoder.decode());
+  } finally {
+    reader.releaseLock();
+  }
+  return chunks.join('');
+}
+
+function parseSearchResultsHtml(html, limit) {
+  const results = [];
+  const seenUrls = new Set();
+  const anchorPattern = /<a\b([^>]*)>([\s\S]*?)<\/a>/gi;
+  let match;
+  while ((match = anchorPattern.exec(html)) && results.length < limit) {
+    const attrs = match[1] || '';
+    const className = getHtmlAttribute(attrs, 'class');
+    if (!/\bresult__a\b/.test(className)) continue;
+
+    const rawHref = getHtmlAttribute(attrs, 'href');
+    const url = normalizeSearchResultUrl(rawHref);
+    if (!url || seenUrls.has(url)) continue;
+
+    seenUrls.add(url);
+    const snippet = extractSnippetNear(html, anchorPattern.lastIndex);
+    results.push({
+      title: cleanHtmlText(match[2]).slice(0, 200) || url,
+      url,
+      snippet: snippet.slice(0, 500),
+    });
+  }
+  return results;
+}
+
+function extractSnippetNear(html, startIndex) {
+  const segment = html.slice(startIndex, startIndex + 2500);
+  const snippetMatch = segment.match(/<[^>]+\bclass=(["'])[^"']*(?:result__snippet|result-snippet|snippet)[^"']*\1[^>]*>([\s\S]*?)<\/(?:a|div|span|p)>/i);
+  return snippetMatch ? cleanHtmlText(snippetMatch[2]) : '';
+}
+
+function getHtmlAttribute(attrs, name) {
+  const pattern = new RegExp(`\\b${name}\\s*=\\s*(["'])(.*?)\\1`, 'i');
+  const match = attrs.match(pattern);
+  return match ? decodeHtmlEntities(match[2]) : '';
+}
+
+function normalizeSearchResultUrl(rawHref) {
+  const href = decodeHtmlEntities(String(rawHref || '').trim());
+  if (!href) return '';
+  try {
+    const parsed = new URL(href, WEB_SEARCH_PROVIDER_URL);
+    if (parsed.pathname === '/l/' && parsed.searchParams.get('uddg')) {
+      return new URL(parsed.searchParams.get('uddg')).toString();
+    }
+    parsed.hash = '';
+    return parsed.toString();
+  } catch {
+    return '';
+  }
+}
+
+function cleanHtmlText(value) {
+  return decodeHtmlEntities(String(value || '')
+    .replace(/<script\b[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style\b[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim());
+}
+
+function extractPageText(html) {
+  return cleanHtmlText(String(html || '')
+    .replace(/<script\b[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style\b[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<noscript\b[\s\S]*?<\/noscript>/gi, ' ')
+    .replace(/<svg\b[\s\S]*?<\/svg>/gi, ' ')
+    .replace(/<\/(p|div|section|article|main|header|footer|li|h[1-6])>/gi, '\n'));
+}
+
+function decodeHtmlEntities(value) {
+  const entities = {
+    amp: '&',
+    lt: '<',
+    gt: '>',
+    quot: '"',
+    apos: "'",
+    nbsp: ' ',
+  };
+  return String(value || '').replace(/&(#x?[0-9a-f]+|[a-z]+);/gi, (match, entity) => {
+    const normalized = entity.toLowerCase();
+    if (normalized.startsWith('#x')) {
+      const codePoint = Number.parseInt(normalized.slice(2), 16);
+      return Number.isFinite(codePoint) ? String.fromCodePoint(codePoint) : match;
+    }
+    if (normalized.startsWith('#')) {
+      const codePoint = Number.parseInt(normalized.slice(1), 10);
+      return Number.isFinite(codePoint) ? String.fromCodePoint(codePoint) : match;
+    }
+    return entities[normalized] ?? match;
+  });
+}
+
+async function assertPublicHttpUrl(url) {
+  const parsed = url instanceof URL ? url : new URL(String(url));
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error('unsupported_url_protocol');
+  }
+  if (parsed.username || parsed.password) {
+    throw new Error('url_credentials_not_allowed');
+  }
+  const hostname = parsed.hostname.toLowerCase();
+  if (!hostname || hostname === 'localhost' || hostname.endsWith('.localhost')) {
+    throw new Error('private_url_not_allowed');
+  }
+
+  const version = isIP(hostname);
+  if (version) {
+    if (!isPublicIpAddress(hostname, version)) throw new Error('private_url_not_allowed');
+    return { url: parsed, addresses: [{ address: hostname, family: version }] };
+  }
+
+  const addresses = await lookup(hostname, { all: true, verbatim: false });
+  if (addresses.length === 0) throw new Error('host_not_resolvable');
+  for (const address of addresses) {
+    if (!isPublicIpAddress(address.address, address.family)) {
+      throw new Error('private_url_not_allowed');
+    }
+  }
+  return { url: parsed, addresses };
+}
+
+function isPublicIpAddress(address, family) {
+  if (family === 4 || isIP(address) === 4) return isPublicIpv4(address);
+  if (family === 6 || isIP(address) === 6) return isPublicIpv6(address);
+  return false;
+}
+
+function isPublicIpv4(address) {
+  const parts = address.split('.').map((part) => Number.parseInt(part, 10));
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) {
+    return false;
+  }
+  const [a, b, c] = parts;
+  if (a === 0 || a === 10 || a === 127 || a >= 224) return false;
+  if (a === 100 && b >= 64 && b <= 127) return false;
+  if (a === 169 && b === 254) return false;
+  if (a === 172 && b >= 16 && b <= 31) return false;
+  if (a === 192 && b === 168) return false;
+  if (a === 192 && b === 0) return false;
+  if (a === 192 && b === 0 && c === 2) return false;
+  if (a === 198 && (b === 18 || b === 19)) return false;
+  if (a === 198 && b === 51 && c === 100) return false;
+  if (a === 203 && b === 0 && c === 113) return false;
+  return true;
+}
+
+function isPublicIpv6(address) {
+  const normalized = address.toLowerCase();
+  if (
+    normalized === '::'
+    || normalized === '::1'
+    || normalized.startsWith('fc')
+    || normalized.startsWith('fd')
+    || normalized.startsWith('fe80:')
+    || normalized.startsWith('ff')
+    || normalized.startsWith('2001:db8')
+  ) {
+    return false;
+  }
+  if (normalized.startsWith('::ffff:')) {
+    return isPublicIpv4(normalized.slice('::ffff:'.length));
+  }
+  return true;
 }
 
 function getAbortError(signal) {
@@ -1176,6 +1683,10 @@ export function createZhidaServer() {
     }
     if (req.method === 'PUT' && req.url === '/api/config') {
       handleConfigSave(req, res);
+      return;
+    }
+    if (req.method === 'POST' && req.url === '/api/web/search') {
+      handleWebSearch(req, res);
       return;
     }
     const upstreamPath = getUpstreamPath(req);

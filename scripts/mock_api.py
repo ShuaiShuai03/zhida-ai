@@ -43,6 +43,23 @@ def extract_prompt(payload):
     return str(content)
 
 
+def extract_all_message_text(payload):
+    messages = payload.get("messages") or payload.get("input") or []
+    if isinstance(messages, str):
+        return messages
+
+    text_parts = []
+    for message in messages:
+        content = message.get("content", "")
+        if isinstance(content, list):
+            for part in content:
+                if part.get("type") in ("text", "input_text"):
+                    text_parts.append(part.get("text", ""))
+        else:
+            text_parts.append(str(content))
+    return "\n".join(text_parts)
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "ZhidaSmokeAPI/1.0"
 
@@ -116,6 +133,7 @@ class Handler(BaseHTTPRequestHandler):
         raw_body = self.rfile.read(length)
         payload = json.loads(raw_body.decode("utf-8") or "{}")
         prompt = extract_prompt(payload).lower()
+        all_text = extract_all_message_text(payload).lower()
         is_stream = payload.get("stream", False)
 
         if not is_stream:
@@ -144,6 +162,12 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if "echo model" in prompt:
                 self.write_sse({"choices": [{"delta": {"content": f"model: {payload.get('model', '')}"}}]})
+                self.wfile.write(b"data: [DONE]\n\n")
+                self.wfile.flush()
+                return
+
+            if "web search check" in prompt and "standalone source" in all_text:
+                self.write_sse({"choices": [{"delta": {"content": "Standalone search reply from context"}}]})
                 self.wfile.write(b"data: [DONE]\n\n")
                 self.wfile.flush()
                 return

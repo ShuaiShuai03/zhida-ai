@@ -506,7 +506,7 @@ function renderDiagnostics() {
       rows: [
         ['当前模型', selectedModel?.name || selectedModel?.id || '未选择'],
         ['模型数量', String(state.models.length)],
-        ['网络搜索', selectedModel?.supportsResponses ? '可用' : '不可用'],
+        ['网络搜索', state.backendAvailable === false ? '不可用' : '可用'],
       ],
     },
     {
@@ -539,15 +539,20 @@ function openDiagnosticsModal() {
 }
 
 async function saveServerApiConfigFromForm({ requireKey = false } = {}) {
+  const apiConfig = getSettingsApiConfig();
+  const urlChanged = apiConfig.apiBaseUrl !== state.apiBaseUrl;
+  const hasApiFormInput = Boolean(apiConfig.apiBaseUrl || apiConfig.apiKey);
+  const shouldSaveApiConfig = Boolean(
+    apiConfig.apiKey
+    || urlChanged
+    || requireKey
+    || (!state.isApiConfigured && hasApiFormInput)
+  );
+
+  if (!shouldSaveApiConfig) return null;
   if (state.backendAvailable === false) {
     throw new Error(state.backendError || BACKEND_UNAVAILABLE_MESSAGE);
   }
-
-  const apiConfig = getSettingsApiConfig();
-  const urlChanged = apiConfig.apiBaseUrl !== state.apiBaseUrl;
-  const shouldSaveApiConfig = apiConfig.apiKey || urlChanged || !state.isApiConfigured || requireKey;
-
-  if (!shouldSaveApiConfig) return null;
   if (!apiConfig.apiBaseUrl || !apiConfig.apiKey) {
     throw new Error('请填写 API 地址和 API 密钥');
   }
@@ -663,9 +668,13 @@ async function doSend() {
   }
 
   const attachments = [...pendingAttachments];
-  pendingAttachments = [];
-  renderAttachmentPreview();
-  sendMessage(textarea?.value || '', attachments);
+  const accepted = await sendMessage(textarea?.value || '', attachments);
+  if (accepted) {
+    pendingAttachments = [];
+    renderAttachmentPreview();
+  } else {
+    updateSendButton(canSend());
+  }
 }
 
 function bindInputEvents() {

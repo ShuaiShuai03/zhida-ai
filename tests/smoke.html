@@ -522,6 +522,48 @@
       };
     }
 
+    function installStandaloneWebSearchFetchMock(win) {
+      const originalFetch = win.fetch.bind(win);
+      let intercepted = false;
+
+      win.fetch = (resource, options = {}) => {
+        const rawUrl = typeof resource === 'string' ? resource : resource?.url;
+        const url = new URL(rawUrl, win.location.href);
+
+        if (url.pathname === '/api/web/search') {
+          intercepted = true;
+          const body = JSON.parse(String(options?.body || '{}'));
+          return Promise.resolve(new win.Response(JSON.stringify({
+            query: body.query || 'web search check',
+            results: [{
+              title: 'Standalone Source',
+              url: 'https://example.com/standalone-source',
+              snippet: `fixture context: ${body.contextSize || 'medium'}`,
+              text: 'Standalone Source page text for the chat-only smoke path.',
+            }],
+            citations: [{
+              title: 'Standalone Source',
+              url: 'https://example.com/standalone-source',
+            }],
+          }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json; charset=utf-8' },
+          }));
+        }
+
+        return originalFetch(resource, options);
+      };
+
+      return {
+        restore() {
+          win.fetch = originalFetch;
+        },
+        wasIntercepted() {
+          return intercepted;
+        },
+      };
+    }
+
     function createScrollableLayoutConversation() {
       const now = Date.now();
       const filler = Array.from(
@@ -1214,51 +1256,44 @@
       if (!doc.querySelector('#reasoning-effort-select')?.disabled) {
         fail('standard model should disable reasoning depth control');
       }
-      if (!doc.querySelector('#web-search-toggle')?.disabled) {
-        fail('chat-only standard model should disable web search');
+      if (doc.querySelector('#web-search-toggle')?.disabled) {
+        fail('chat-only standard model should enable standalone web search');
       }
       if (!doc.querySelector('#web-search-context-select')?.disabled) {
-        fail('chat-only standard model should disable search context');
+        fail('search context should stay disabled until standalone web search is enabled');
       }
+      const standaloneSearchMock = installStandaloneWebSearchFetchMock(win);
       requireElement('#web-search-toggle', doc, '开启网络搜索').checked = true;
-      dispatchBySelector('#web-search-toggle', new Event('change', { bubbles: true }), doc, '确认网络搜索切换');
-      if (doc.querySelector('#web-search-toggle')?.checked) {
-        fail('disabled web search toggle should remain unchecked for chat-only model');
-      }
-      clickBySelector('#model-trigger', doc, '打开模型选择器');
-      const responsesOptionForSearch = await waitFor(
-        () => findByText('.model-selector__item', 'GPT 5.5 Smoke', doc),
-        'responses-capable model option for search'
-      );
-      click(responsesOptionForSearch);
-      await waitFor(
-        () => !doc.querySelector('#web-search-toggle')?.disabled,
-        'responses-capable model enables web search'
-      );
-      requireElement('#web-search-toggle', doc, '切换网络搜索开关').checked = true;
       dispatchBySelector('#web-search-toggle', new Event('change', { bubbles: true }), doc, '确认网络搜索切换');
       await waitFor(
         () => !doc.querySelector('#web-search-context-select')?.disabled,
-        'responses-capable model enables search context'
+        'chat-only standalone search enables search context'
       );
       inputBySelector('#web-search-context-select', 'high', doc, '设置搜索范围');
       inputBySelector('#chat-input', 'web search check', doc, '输入搜索验证消息');
       clickBySelector('#send-btn', doc, '发送搜索验证消息');
       await waitFor(
-        () => Array.from(doc.querySelectorAll('.message--ai .message__content')).some((node) => node.textContent.includes('Responses search reply')),
-        'web search responses reply'
+        () => standaloneSearchMock.wasIntercepted(),
+        'standalone web search fixture intercepted'
       );
       await waitFor(
-        () => Array.from(doc.querySelectorAll('.message--ai .message__content')).some((node) => node.textContent.includes('search context: high')),
-        'search context forwarded to responses'
+        () => Array.from(doc.querySelectorAll('.message--ai .message__content')).some((node) => node.textContent.includes('Standalone search reply from context')),
+        'standalone search context forwarded to chat completions'
       );
       await waitFor(
-        () => Array.from(doc.querySelectorAll('.message--ai .message__content')).some((node) => node.textContent.includes('Example Source')),
-        'responses citation rendered'
+        () => Array.from(doc.querySelectorAll('.message--ai .message__content')).some((node) => node.textContent.includes('Standalone Source')),
+        'standalone citation rendered'
       );
+      standaloneSearchMock.restore();
       requireElement('#web-search-toggle', doc, '关闭网络搜索开关').checked = false;
       dispatchBySelector('#web-search-toggle', new Event('change', { bubbles: true }), doc, '确认关闭网络搜索');
 
+      clickBySelector('#model-trigger', doc, '打开模型选择器');
+      const responsesOptionForReasoning = await waitFor(
+        () => findByText('.model-selector__item', 'GPT 5.5 Smoke', doc),
+        'responses-capable model option for reasoning'
+      );
+      click(responsesOptionForReasoning);
       await waitFor(
         () => !doc.querySelector('#reasoning-effort-select')?.disabled,
         'responses-capable model enables reasoning depth'
